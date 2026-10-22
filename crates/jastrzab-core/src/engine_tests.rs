@@ -491,6 +491,102 @@ fn going_offline_pauses_posting_and_coming_back_retries_at_once() {
     assert_eq!(post.latitude, 1.0);
 }
 
+fn location_cmds(effects: &[Effect]) -> Vec<LocationCmd> {
+    effects.iter().filter_map(|e| if let Effect::Location(cmd) = e { Some(*cmd) } else { None }).collect()
+}
+
+#[test]
+fn a_short_outage_leaves_the_gps_running() {
+    let mut h = Harness::new();
+    h.activate();
+    let effects = h.send(Event::Network(false));
+    assert!(effects.iter().any(|e| matches!(e, Effect::Arm { kind: TimerKind::OfflinePause, secs: 20, .. })));
+    h.advance(10);
+    let effects = h.send(Event::Network(true));
+    assert!(effects.iter().any(|e| matches!(e, Effect::Disarm(TimerKind::OfflinePause))));
+    assert!(location_cmds(&effects).is_empty(), "no restart for a blip: {effects:?}");
+    assert_eq!(h.engine.view().signal.level, Level::Searching);
+}
+
+#[test]
+fn a_long_outage_switches_location_off_and_the_network_returning_switches_it_on() {
+    let mut h = Harness::new();
+    h.activate();
+    let id = http_id(&h.send(Event::Fix(gps_fix(1.0, 3.0, 1.0))));
+    h.send(Event::HttpDone { id, result: Ok(reply("1.6.3", POST_OK)) });
+    let effects = h.send(Event::Network(false));
+    h.advance(20);
+    let effects = h.fire(TimerKind::OfflinePause, &effects);
+    assert_eq!(location_cmds(&effects), [LocationCmd::Stop]);
+    assert!(effects.iter().any(|e| matches!(e, Effect::Disarm(TimerKind::SignalLost))), "nothing else wakes the app");
+    assert!(!effects.iter().any(|e| matches!(e, Effect::Inhibit(false))), "the share still keeps the phone awake");
+    let view = h.engine.view();
+    assert_eq!(view.signal.level, Level::Paused);
+    assert_eq!(view.phase, PhaseView::Active);
+    assert_eq!(view.status.title, "No network connection");
+
+    // An update that was already on its way is ignored.
+    h.send(Event::Fix(gps_fix(2.0, 3.0, 2.0)));
+    assert_eq!(h.engine.view().signal.level, Level::Paused);
+
+    h.advance(300);
+    let effects = h.send(Event::Network(true));
+    assert_eq!(location_cmds(&effects), [LocationCmd::Start { interval_secs: 5 }]);
+    assert!(http_requests(&effects).is_empty(), "the dropped update is not sent, and the last point already went out");
+    assert_eq!(h.engine.view().signal.level, Level::Searching);
+
+    // Fixes flow again and the signal is judged afresh.
+    h.send(Event::LocationStarted);
+    let effects = h.send(Event::Fix(gps_fix(3.0, 3.0, 400.0)));
+    let Request::Post(post) = http_requests(&effects)[0].1 else { panic!("the new position goes out") };
+    assert_eq!(post.latitude, 3.0);
+    assert_eq!(h.engine.view().signal.level, Level::Good);
+}
+
+#[test]
+fn stopping_while_location_is_paused_just_ends_the_share() {
+    let mut h = Harness::new();
+    h.activate();
+    let effects = h.send(Event::Network(false));
+    h.advance(20);
+    h.fire(TimerKind::OfflinePause, &effects);
+    let effects = h.send(Event::Stop);
+    assert_eq!(h.engine.view().phase, PhaseView::Idle);
+    assert!(location_cmds(&effects).is_empty(), "already off");
+    assert!(effects.iter().any(|e| matches!(e, Effect::Inhibit(false))));
+    // Nothing restarts when the network comes back later.
+    let effects = h.send(Event::Network(true));
+    assert!(location_cmds(&effects).is_empty());
+}
+
+#[test]
+fn a_share_whose_time_ran_out_while_the_phone_slept_ends_when_the_network_returns() {
+    let mut h = Harness::new();
+    h.activate();
+    let effects = h.send(Event::Network(false));
+    h.advance(20);
+    h.fire(TimerKind::OfflinePause, &effects);
+    h.advance(31 * 60);
+    let effects = h.send(Event::Network(true));
+    assert_eq!(h.engine.view().phase, PhaseView::Idle);
+    assert!(toasts(&effects).iter().any(|t| t.title == "Sharing has ended"));
+    assert!(location_cmds(&effects).is_empty(), "the share is over: no restart");
+}
+
+#[test]
+fn a_share_resumed_without_a_network_pauses_location_after_the_grace_period() {
+    let mut h = Harness::new();
+    h.send(Event::Network(false));
+    h.send(Event::ResumeAvailable(snapshot(1_000_600.0)));
+    h.send(Event::Resume);
+    let effects = h.send(Event::LocationStarted);
+    assert_eq!(h.engine.view().phase, PhaseView::Active);
+    assert!(effects.iter().any(|e| matches!(e, Effect::Arm { kind: TimerKind::OfflinePause, .. })));
+    h.advance(20);
+    let effects = h.fire(TimerKind::OfflinePause, &effects);
+    assert_eq!(location_cmds(&effects), [LocationCmd::Stop]);
+}
+
 #[test]
 fn the_link_list_follows_the_server() {
     let mut h = Harness::new();

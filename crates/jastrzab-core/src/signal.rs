@@ -31,6 +31,8 @@ pub enum Level {
     Excellent,
     /// Had a fix, but no update for a while.
     Lost,
+    /// Location is switched off on purpose while the network is gone, to save battery.
+    Paused,
 }
 
 impl Level {
@@ -41,7 +43,7 @@ impl Level {
             Level::Fair => 2,
             Level::Good => 3,
             Level::Excellent => 4,
-            Level::Off | Level::Searching | Level::Lost => 0,
+            Level::Off | Level::Searching | Level::Lost | Level::Paused => 0,
         }
     }
 
@@ -52,7 +54,7 @@ impl Level {
             Level::Fair => "q-fair",
             Level::Good => "q-good",
             Level::Excellent => "q-excellent",
-            Level::Off | Level::Searching | Level::Lost => "q-none",
+            Level::Off | Level::Searching | Level::Lost | Level::Paused => "q-none",
         }
     }
 
@@ -175,6 +177,21 @@ impl SignalMonitor {
         *self = Self::default();
     }
 
+    /// Location was switched off because the network is gone: show that instead of "lost", and
+    /// ignore any update still on its way.
+    pub fn pause(&mut self) {
+        if self.active {
+            self.shown = Level::Paused;
+        }
+    }
+
+    /// Location was switched back on: searching again, as if the share had just begun.
+    pub fn resume(&mut self) {
+        if self.shown == Level::Paused {
+            *self = Self { active: true, interval_secs: self.interval_secs, shown: Level::Searching, ..Self::default() };
+        }
+    }
+
     /// How long without an update means the signal is lost: `max(3 × interval, 10 s)` for
     /// satellite fixes. Network sources only report when the position changes, so a stationary
     /// phone is quiet for long stretches and gets a much longer window.
@@ -187,7 +204,7 @@ impl SignalMonitor {
     }
 
     pub fn on_fix(&mut self, fix: &Fix, now_ms: u64) {
-        if !self.active {
+        if !self.active || self.shown == Level::Paused {
             return;
         }
         if self.recent.len() == MEDIAN_WINDOW {
@@ -264,6 +281,11 @@ impl SignalMonitor {
             Level::Fair => (tr("Fair"), Some(tr("Viewers may see you on the wrong street.")), Some(tr("A clearer view of the sky will improve this."))),
             Level::Good => (tr("Good"), Some(tr("Viewers will see you at the right building.")), None),
             Level::Excellent => (tr("Excellent"), Some(tr("Viewers will see you in the right spot.")), None),
+            Level::Paused => (
+                tr("Paused"),
+                Some(tr("Viewers see your last known spot.")),
+                Some(tr("There is no network, so location is off to save battery. It starts again when the network is back.")),
+            ),
             Level::Lost => (
                 tr("Signal lost"),
                 Some(tr("Viewers see your last known spot.")),
@@ -287,6 +309,7 @@ impl SignalMonitor {
             Level::Fair | Level::Poor => ("location-services-active-symbolic", "warning"),
             Level::Searching => ("find-location-symbolic", "warning"),
             Level::Lost => ("location-services-disabled-symbolic", "error"),
+            Level::Paused => ("location-services-disabled-symbolic", "dim-label"),
             Level::Off => ("find-location-symbolic", "dim-label"),
         };
 

@@ -3,6 +3,8 @@
 * org.freedesktop.Notifications: records every call and can invoke an action, like Phosh.
 * org.freedesktop.login1: hands out a pipe for each Inhibit call; the lock is held while the
   client keeps its end open, exactly like the real thing.
+* org.freedesktop.NetworkManager: just the `State`, `Connectivity` and `Metered` properties GLib's
+  network monitor reads, and the PropertiesChanged signal when a test changes them.
 """
 import os
 import select
@@ -31,8 +33,21 @@ LOGIND_XML = """<node><interface name="org.freedesktop.login1.Manager">
 </interface></node>"""
 
 
+NETWORK_MANAGER_XML = """<node><interface name="org.freedesktop.NetworkManager">
+ <property name="State" type="u" access="read"/>
+ <property name="Connectivity" type="u" access="read"/>
+ <property name="Metered" type="u" access="read"/>
+</interface></node>"""
+
+NM_PATH = "/org/freedesktop/NetworkManager"
+# NMState and NMConnectivityState values.
+NM_ASLEEP, NM_DISCONNECTED, NM_CONNECTED_LOCAL, NM_CONNECTED_SITE, NM_CONNECTED_GLOBAL = 10, 20, 50, 60, 70
+NM_CONNECTIVITY_NONE, NM_CONNECTIVITY_FULL = 1, 4
+
+
 class Fakes:
     def __init__(self):
+        self.nm = {"State": NM_CONNECTED_GLOBAL, "Connectivity": NM_CONNECTIVITY_FULL, "Metered": 2}
         self.notifications = []   # dicts, one per Notify call
         self.closed = []          # ids passed to CloseNotification
         self.inhibitors = []      # (what, who, why, mode, write_fd)
@@ -55,15 +70,19 @@ class Fakes:
         def acquired(conn, name):
             self._conn = conn
             self._owned += 1
-            if self._owned >= 2:
+            if self._owned >= 3:
                 self._ready.set()
 
         def on_bus(conn, name):
             conn.register_object("/org/freedesktop/Notifications", Gio.DBusNodeInfo.new_for_xml(NOTIFICATIONS_XML).interfaces[0], self._notifications_call, None, None)
             conn.register_object("/org/freedesktop/login1", Gio.DBusNodeInfo.new_for_xml(LOGIND_XML).interfaces[0], self._logind_call, None, None)
 
+        def on_nm_bus(conn, name):
+            conn.register_object(NM_PATH, Gio.DBusNodeInfo.new_for_xml(NETWORK_MANAGER_XML).interfaces[0], None, self._nm_property, None)
+
         Gio.bus_own_name(Gio.BusType.SESSION, "org.freedesktop.Notifications", Gio.BusNameOwnerFlags.NONE, on_bus, acquired, None)
         Gio.bus_own_name(Gio.BusType.SESSION, "org.freedesktop.login1", Gio.BusNameOwnerFlags.NONE, None, acquired, None)
+        Gio.bus_own_name(Gio.BusType.SESSION, "org.freedesktop.NetworkManager", Gio.BusNameOwnerFlags.NONE, on_nm_bus, acquired, None)
         self._loop.run()
 
     # -- Notifications ----------------------------------------------------------------------
@@ -87,6 +106,22 @@ class Fakes:
         """Tap an action on the latest notification, as Phosh does."""
         nid = self.notifications[-1]["id"]
         self._conn.emit_signal(None, "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "ActionInvoked", GLib.Variant("(us)", (nid, key)))
+
+    # -- NetworkManager ---------------------------------------------------------------------
+    def _nm_property(self, conn, sender, path, iface, name, _=None):
+        return GLib.Variant("u", self.nm[name])
+
+    def set_network(self, state, connectivity):
+        """Change what NetworkManager reports, and announce it as the real daemon does."""
+        self.nm.update(State=state, Connectivity=connectivity)
+        changed = GLib.Variant("(sa{sv}as)", ("org.freedesktop.NetworkManager", {"State": GLib.Variant("u", state), "Connectivity": GLib.Variant("u", connectivity)}, []))
+        self._conn.emit_signal(None, NM_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged", changed)
+
+    def network_down(self):
+        self.set_network(NM_DISCONNECTED, NM_CONNECTIVITY_NONE)
+
+    def network_up(self):
+        self.set_network(NM_CONNECTED_GLOBAL, NM_CONNECTIVITY_FULL)
 
     # -- logind -----------------------------------------------------------------------------
     def _logind_call(self, conn, sender, path, iface, method, params, invocation, _=None):

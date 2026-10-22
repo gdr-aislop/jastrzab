@@ -29,6 +29,9 @@ rather than a satellite count (see [the design](docs/phosh-gui-design.md), §4.4
 * **Stays on while the window is closed**: the notification has *Copy Link* and *Stop Sharing*
   (the latter also on the lock screen), and a suspend inhibitor keeps the phone awake while
   sharing.
+* **Saves battery without a network**: it follows NetworkManager. Posting stops at once; after 20
+  seconds without a network the GPS is switched off too (the signal row says *Paused*), and it comes
+  back with the network. The phone is still kept awake while a share runs.
 * **Resumes** a share after the app was killed.
 * **Proxies** (system, HTTP, SOCKS), a connection timeout, and Hauk's relaxed certificate checks for
   `.onion` servers.

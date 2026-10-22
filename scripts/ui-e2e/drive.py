@@ -403,6 +403,59 @@ def services():
     end_app(proc)
 
 
+def network():
+    """NetworkManager says the network is gone, then back: posting pauses at once, the GPS goes off
+    after a grace period and returns with the network. Against a fake NetworkManager."""
+    from fakes import Fakes
+    fakes = Fakes().start()
+    proc = start_app()
+    click("push button", "Start Sharing")
+    wait_for(lambda: has_label("Sharing location"), 20, "Sharing location")
+    items = wait_for(lambda: [n for n in find_all("list item") if n.get_name() and "-" in n.get_name() and len(n.get_name()) == 9], 10, "a link row")
+    link_id = items[0].get_name() if items else None
+    points = wait_for(lambda: (p := fetch_points(link_id)) and isinstance(p, list) and len(p) >= 2 and p, 20, "points on the server")
+    check(bool(points), "points arrive while the network is up")
+
+    # A blip shorter than the grace period: posting pauses, the GPS is left alone.
+    fakes.network_down()
+    wait_for(lambda: has_label("No network connection"), 10, "No network connection")
+    check(has_label("No network connection"), "NetworkManager going away is shown at once")
+    time.sleep(4)
+    fakes.network_up()
+    wait_for(lambda: has_label("Sharing location"), 20, "Sharing location after the blip")
+    check(has_label("Sharing location"), "the share carries on when the network returns")
+    time.sleep(24)  # longer than the grace period: a timer that was not cancelled would fire now
+    check(not has_label("Paused"), "a short outage does not pause location")
+
+    # A real outage.
+    fakes.network_down()
+    wait_for(lambda: has_label("No network connection"), 10, "No network connection")
+    paused = wait_for(lambda: has_label("Paused"), 35, "the GPS signal row to say Paused")
+    check(bool(paused), "after the grace period the signal row says Paused (location is off)")
+    shot("e2e-network-paused")
+    check(fakes.inhibitors_held() == 1, "the share still keeps the phone awake")
+    held = fetch_points(link_id)[-1][2]  # time of the newest point on the server
+    time.sleep(5)
+    check(fetch_points(link_id)[-1][2] == held, "nothing is posted while the network is gone")
+
+    fakes.network_up()
+    wait_for(lambda: not has_label("Paused"), 10, "Paused to go away")
+    check(not has_label("Paused"), "location is back with the network")
+    grown = wait_for(lambda: (p := fetch_points(link_id)) and isinstance(p, list) and p[-1][2] > held and p, 25, "new points after the network returned")
+    check(bool(grown), "new points arrive again")
+    shot("e2e-network-back")
+    check(has_label("Sharing location"), "the status is back to sharing")
+
+    click("push button", "Stop Sharing")
+    click_in_dialog("Stop Sharing")
+    wait_for(lambda: has_label("Not sharing"), 15, "Not sharing")
+    end_app(proc)
+    log = log_text()
+    check("GNetworkMonitorNM" in log, "the app is listening to NetworkManager (GLib's NM backend)")
+    check(log.count("no network for a while") == 1, f"location was switched off once, for the real outage ({log.count('no network for a while')})")
+    check(log.count("network back: location on again") == 1, "and on again once")
+
+
 def geoclue():
     """The real GeoClue 2.7.0 (WITH_GEOCLUE=1): the static source at 52.52, 13.405."""
     proc = start_app(fake=None)
@@ -537,7 +590,7 @@ def group():
     end_app(proc)
 
 
-SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "logging": logging, "crash": crash, "resume": resume}
+SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "network": network, "logging": logging, "crash": crash, "resume": resume}
 
 if __name__ == "__main__":
     name = sys.argv[1] if len(sys.argv) > 1 else "solo"
