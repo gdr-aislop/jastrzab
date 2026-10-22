@@ -1,0 +1,19 @@
+/* The GPS signal bar (design §4.4). The stock discrete level bar colours its middle levels blue
+   and gives each segment 26 px, which makes a four-segment bar 110 px wide. */
+levelbar.signal > trough > block {
+  min-width: 14px;
+  margin-right: 3px;
+}
+
+levelbar.signal.q-poor > trough > block:not(.empty) {
+  background-color: @error_color;
+}
+
+levelbar.signal.q-fair > trough > block:not(.empty) {
+  background-color: @warning_color;
+}
+
+levelbar.signal.q-good > trough > block:not(.empty),
+levelbar.signal.q-excellent > trough > block:not(.empty) {
+  background-color: @success_color;
+}
