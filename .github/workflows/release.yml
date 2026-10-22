@@ -290,7 +290,7 @@ jobs:
         env:
           FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: flatpak-ostree-*
           path: flatpak-repos
@@ -359,7 +359,7 @@ jobs:
         env:
           SIGNING_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: deb-*
           path: debs
@@ -443,12 +443,12 @@ jobs:
       # The Flatpak repo (OSTree objects/refs/config/summary + the .flatpakrepo file) sits at the
       # Pages root; the APT repo sits under /apt/ alongside it. Nothing in either tree's top level
       # is named "apt", so the two coexist with no path collisions.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: flatpak-pages
           path: pages
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: apt-repo
           path: pages/apt
@@ -473,7 +473,7 @@ jobs:
       # Explicitly excludes flatpak-ostree-*/flatpak-pages (the raw OSTree repo artifacts
       # combine-flatpak-repo/deploy-pages consume): a bare "flatpak-*" would also match those and
       # dump repo internals (config/objects/refs, with colliding filenames across arches) into dist.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: "{deb-*,appimage-*,flatpak-x86_64,flatpak-aarch64}"
           merge-multiple: true
