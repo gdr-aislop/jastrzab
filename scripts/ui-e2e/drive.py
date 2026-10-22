@@ -167,12 +167,13 @@ def fetch_points(link_id):
 
 # --- the app -----------------------------------------------------------------------------------
 
-def start_app(extra_settings="", fake="52.52,13.40,3", url=None, form_mode=None):
-    subprocess.run(["rm", "-rf", HOME])
+def start_app(extra_settings="", fake="52.52,13.40,3", url=None, form_mode=None, keep_home=False):
     cfg = f"{HOME}/.config/{APP_ID}"
-    os.makedirs(cfg, exist_ok=True)
-    with open(f"{cfg}/settings.toml", "w") as f:
-        f.write(f'server_url = "{url or HAUK_URL}"\ninterval_secs = 2\n{extra_settings}')
+    if not keep_home:
+        subprocess.run(["rm", "-rf", HOME])
+        os.makedirs(cfg, exist_ok=True)
+        with open(f"{cfg}/settings.toml", "w") as f:
+            f.write(f'server_url = "{url or HAUK_URL}"\ninterval_secs = 2\n{extra_settings}')
     # The app has its own XDG_CONFIG_HOME, so desktop settings (text scale, ...) the harness was
     # given for the compositor are written where the app's GSettings keyfile backend looks.
     extra = os.environ.get("PHOC_KEYFILE_EXTRA", "").strip()
@@ -423,6 +424,42 @@ def geoclue():
     end_app(proc)
 
 
+def resume():
+    """Kill the app mid-share (SIGKILL), start it again, and resume the same share."""
+    proc = start_app()
+    click("push button", "Start Sharing")
+    wait_for(lambda: has_label("Sharing location"), 20, "Sharing location")
+    items = wait_for(lambda: [n for n in find_all("list item") if n.get_name() and len(n.get_name()) == 9 and "-" in n.get_name()], 10, "a link row")
+    link = items[0].get_name() if items else None
+    points = wait_for(lambda: (p := fetch_points(link)) and isinstance(p, list) and len(p) >= 1 and p, 20, "a first point")
+    time.sleep(3)  # the resume file is written a second after the share starts
+    state, _, _ = log_paths()
+    check(os.path.exists(f"{state}/session.toml"), "the resume file exists while sharing")
+    check((os.stat(f"{state}/session.toml").st_mode & 0o777) == 0o600, "and is readable by the user only")
+    proc.send_signal(9)
+    proc.wait()
+    time.sleep(2)
+    before = fetch_points(link)
+    check(isinstance(before, list) and before, "the server still has the share after the app was killed")
+
+    proc = start_app(keep_home=True)
+    check(wait_for(lambda: has_label("Resume unfinished share?"), 15, "the resume offer") is not None, "the app offers to resume the unfinished share")
+    shot("e2e-resume-offer")
+    click("push button", "Resume")
+    wait_for(lambda: has_label("Sharing location"), 20, "Sharing location after resuming")
+    check(has_label("Sharing location"), "the share carries on")
+    check(any(n.get_name() == link for n in find_all("list item")), f"with the same link ({link})")
+    last = (before[-1][2] if before else 0)
+    later = wait_for(lambda: (p := fetch_points(link)) and isinstance(p, list) and p[-1][2] > last + 1 and p, 20, "new points on the same share")
+    check(bool(later), "new points arrive on the original share")
+    click("push button", "Stop Sharing")
+    click_in_dialog("Stop Sharing")
+    wait_for(lambda: has_label("Not sharing"), 15, "Not sharing")
+    time.sleep(1)
+    check(not os.path.exists(f"{state}/session.toml"), "stopping deletes the resume file")
+    end_app(proc)
+
+
 def log_paths():
     d = f"{HOME}/.local/state/{APP_ID}"
     return d, f"{d}/logs", f"{d}/crashes"
@@ -500,7 +537,7 @@ def group():
     end_app(proc)
 
 
-SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "logging": logging, "crash": crash}
+SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "logging": logging, "crash": crash, "resume": resume}
 
 if __name__ == "__main__":
     name = sys.argv[1] if len(sys.argv) > 1 else "solo"

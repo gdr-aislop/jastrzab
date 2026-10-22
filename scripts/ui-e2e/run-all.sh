@@ -14,6 +14,7 @@ run() { # run <label> <profile> <scenario> [env assignments...]
 run "solo"                  phone           solo
 run "group"                 phone           group
 run "preferences"           phone           prefs
+run "resume after a kill"   phone           resume
 run "services"              phone           services
 run "logging"               phone           logging
 run "crash"                 phone           crash

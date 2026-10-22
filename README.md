@@ -66,7 +66,7 @@ Same layout as the author's other Phosh app, [audiobooklet](https://github.com/g
 | What | Where |
 |---|---|
 | Settings | `~/.config/io.github.gdr_aislop.jastrzab/settings.toml` |
-| Unfinished share (to resume) | `~/.local/state/io.github.gdr_aislop.jastrzab/session.toml` (mode 0600) |
+| Unfinished share (to resume) | `~/.local/state/io.github.gdr_aislop.jastrzab/session.toml` (mode 0600; holds the derived encryption key when end-to-end encryption is on; deleted when the share ends) |
 | Log files | `~/.local/state/io.github.gdr_aislop.jastrzab/logs/jastrzab.YYYY-MM-DD` |
 | Crash dumps | `~/.local/state/io.github.gdr_aislop.jastrzab/crashes/crash-<unix time>-<pid>.dmp` |
 | Passwords | Secret Service (gnome-keyring), keyed by server |
