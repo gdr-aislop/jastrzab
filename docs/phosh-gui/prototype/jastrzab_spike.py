@@ -218,6 +218,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_signal("off" if self.signal_bar.get_visible() else "searching")
 
     def set_signal(self, key, accuracy=None, source="gps", age=0):
+        # While sharing, the monitor is tied to the session and never "off":
+        # a started share with no fix yet is "searching".
+        if self._deadline is not None and key == "off":
+            key = "searching"
         bars, title, consequence, hint = SIGNALS[key]
         measured = key in ("poor", "fair", "good", "excellent")
         self.signal_bar.set_value(bars)
@@ -399,6 +403,8 @@ class MainWindow(Adw.ApplicationWindow):
             self.add_link("TQ7M-2XRB", "Group share (host)")
         else:
             self.add_link("XPHU-64H8", "Your location only")
+        # A new session has no fix yet.
+        self.set_signal("searching")
 
     def add_link(self, link_id, kind):
         row = Adw.ActionRow(title=link_id, subtitle=kind)
@@ -519,10 +525,12 @@ class App(Adw.Application):
             win.share_group.set_sensitive(False)
         elif STATE == "active":
             win.start()
+            win.set_signal("good", accuracy=3)
         elif STATE == "group":
             win.mode_row.set_selected(1)
             win.nick_row.set_text("Alex")
             win.start(group=True)
+            win.set_signal("good", accuracy=3)
             win.add_link("K3QZ-9WTA", "Your location only")
         elif STATE == "join":
             win.mode_row.set_selected(2)
@@ -545,10 +553,12 @@ class App(Adw.Application):
             GLib.timeout_add(800, lambda: Preferences(win).present() or False)
         elif STATE == "confirm":
             win.start()
+            win.set_signal("good", accuracy=3)
             GLib.timeout_add(800, lambda: win.confirm_stop() or False)
         elif STATE == "adopt":
             win.mode_row.set_selected(1)
             win.start(group=True)
+            win.set_signal("good", accuracy=3)
             GLib.timeout_add(800, lambda: win.adopt_dialog() or False)
 
         if os.environ.get("SPIKE_SHOT"):

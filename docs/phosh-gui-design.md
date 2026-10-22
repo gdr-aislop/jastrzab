@@ -156,7 +156,7 @@ The duration range has to respect the server's limit. The Hauk backend rejects s
 **Active** — ![Active](phosh-gui/screens/active.png)
 
 - The status row shows a green pin, **Sharing location**, "Until 17:23 · server" and the remaining time as a `.numeric` `.title-4` label.
-- The **GPS signal** row shows the current level and bar, and expands for details (§4.4).
+- The **GPS signal** row is live for the whole session. It starts at **Searching** and then shows the current level and bar; it is never "Not checking" while sharing (§4.4).
 - The New Share group is insensitive while a session runs (the original disables the same fields).
 - The primary button becomes **Stop Sharing** (`.destructive-action`, replacing `.suggested-action`).
 - Each link is a row with its ID, a subtitle ("Your location only"), and Copy and Stop icon buttons.
@@ -236,6 +236,13 @@ The thresholds and the viewer sentences are proposals. They are hedged because t
 
 - **While sharing:** always, tied to the session.
 - **Before sharing:** only after the user taps **Check** (the button then reads **Stop**). It stops by itself when the window is hidden and after 5 minutes (proposed). An active GeoClue client keeps GPS powered and should light Phosh's location indicator in the top bar (§6.6, not yet confirmed on a device), so a check is not silent.
+Which signal states can appear depends on the session:
+
+| Session | Signal row can show |
+|---|---|
+| Not sharing | **Off** ("Not checking", with a **Check** button), or after **Check**: Searching, Poor, Fair, Good, Excellent, Lost (with a **Stop** button) |
+| Sharing | Searching, Poor, Fair, Good, Excellent, Lost. **Never Off**, and no Check/Stop button |
+
 - It never blocks **Start Sharing**. With no fix yet, sharing starts and viewers see the web viewer's "waiting for signal" page until the first location arrives, as in the original.
 
 **Keeping it calm and honest.**
@@ -443,6 +450,7 @@ An Xvfb test cannot reproduce Phosh's window behaviour. The earlier Librem app f
 - Every group header and label that shows server text has `max_width_chars == 1`.
 - Landscape (720×360) and text scaling 1.5 pass the same checks.
 - The AT-SPI tree has no unnamed buttons, switches, spin buttons or entries (not run on the prototype).
+- The signal row is never **Off** while a session is active, and a new session starts at **Searching** (the prototype enforces this in `set_signal()`).
 - The GPS signal logic is pure and can be tested without a phone: feed `level_for()` and the debounce and lost-timer the GeoClue values `-1, 0, 1, 3, 50, 100, 300` and gaps in updates, and assert the level, bar count, summary text and accessible description for each of the eight states. Screenshot each state at 360×648, 720×288, 1.5× text, dark and high contrast.
 - Replay a recorded GeoClue sequence on a real device (open sky, indoors, walking between buildings) to calibrate the thresholds in §4.4.
 
