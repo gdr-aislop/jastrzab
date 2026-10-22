@@ -232,6 +232,10 @@ pub struct Engine {
     signal: SignalMonitor,
     checking: bool,
     window_visible: bool,
+    /// What the system says about the network.
+    net_up: bool,
+    /// Whether the app acts as if there is a network: `net_up`, or always when the user turned
+    /// `pause_when_offline` off.
     online: bool,
     conn: Conn,
     next_id: HttpId,
@@ -269,6 +273,7 @@ impl Engine {
             signal: SignalMonitor::new(),
             checking: false,
             window_visible: true,
+            net_up: true,
             online: true,
             conn: Conn::Ok,
             next_id: 1,
@@ -338,9 +343,15 @@ impl Engine {
             Event::LocationFailed(failure) => self.location_failed(failure),
             Event::Fix(fix) => self.fix(fix, now),
             Event::HttpDone { id, result } => self.http_done(id, result, now),
-            Event::Network(up) => self.network(up, now),
+            Event::Network(up) => {
+                self.net_up = up;
+                self.sync_online(now);
+            }
             Event::Timer { kind, generation } => self.timer(kind, generation, now),
-            Event::SettingsChanged(settings) => self.settings = settings.sanitized(),
+            Event::SettingsChanged(settings) => {
+                self.settings = settings.sanitized();
+                self.sync_online(now);
+            }
         }
         self.sync_notification();
         std::mem::take(&mut self.out)
@@ -899,6 +910,10 @@ impl Engine {
             }
         }
         self.pump(now);
+    }
+
+    fn sync_online(&mut self, now: Now) {
+        self.network(self.net_up || !self.settings.pause_when_offline, now);
     }
 
     fn network(&mut self, up: bool, now: Now) {

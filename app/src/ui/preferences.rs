@@ -215,6 +215,19 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
         });
     }
     behavior.add(&confirm_row);
+    let (offline_row, offline) = switch_row(
+        &tr("Pause When Offline"),
+        &tr("Stop sending and switch the GPS off while the system reports no network. Turn this off if your server is on a network without internet access."),
+        settings.pause_when_offline,
+    );
+    {
+        let controller = controller.clone();
+        offline.connect_active_notify(move |switch| {
+            let on = switch.is_active();
+            controller.update_settings(|s| s.pause_when_offline = on);
+        });
+    }
+    behavior.add(&offline_row);
     page.add(&behavior);
 
     // --- Diagnostics -----------------------------------------------------------------------

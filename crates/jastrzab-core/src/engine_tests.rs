@@ -544,6 +544,36 @@ fn a_long_outage_switches_location_off_and_the_network_returning_switches_it_on(
 }
 
 #[test]
+fn with_pausing_turned_off_the_system_saying_offline_changes_nothing() {
+    let mut h = Harness::with(Settings { pause_when_offline: false, ..settings() });
+    h.activate();
+    let effects = h.send(Event::Network(false));
+    assert!(!effects.iter().any(|e| matches!(e, Effect::Arm { kind: TimerKind::OfflinePause, .. })));
+    assert_eq!(h.engine.view().status.title, "Sharing location");
+    let effects = h.send(Event::Fix(gps_fix(1.0, 3.0, 1.0)));
+    assert_eq!(http_requests(&effects).len(), 1, "posts go out as if online (a LAN server may still be reachable)");
+}
+
+#[test]
+fn turning_pausing_on_or_off_mid_outage_takes_effect_at_once() {
+    let mut h = Harness::new();
+    h.activate();
+    let effects = h.send(Event::Network(false));
+    h.advance(20);
+    h.fire(TimerKind::OfflinePause, &effects);
+    assert_eq!(h.engine.view().signal.level, Level::Paused);
+
+    // The user turns the behaviour off: location comes back although the system still says offline.
+    let effects = h.send(Event::SettingsChanged(Settings { pause_when_offline: false, ..settings() }));
+    assert_eq!(location_cmds(&effects), [LocationCmd::Start { interval_secs: 5 }]);
+    assert_eq!(h.engine.view().signal.level, Level::Searching);
+
+    // And on again: the grace period starts.
+    let effects = h.send(Event::SettingsChanged(settings()));
+    assert!(effects.iter().any(|e| matches!(e, Effect::Arm { kind: TimerKind::OfflinePause, secs: 20, .. })));
+}
+
+#[test]
 fn stopping_while_location_is_paused_just_ends_the_share() {
     let mut h = Harness::new();
     h.activate();

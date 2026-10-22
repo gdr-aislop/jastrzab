@@ -98,6 +98,10 @@ pub struct Settings {
     pub tls: TlsPolicy,
     // Behaviour
     pub confirm_stop: bool,
+    /// Believe the system when it says there is no network: stop sending and, after a while, switch
+    /// the GPS off. Off for a server on a network that has no route to the internet, which the
+    /// system counts as offline.
+    pub pause_when_offline: bool,
     // Diagnostics
     pub anonymize_logs: bool,
     // The share form's last values
@@ -123,6 +127,7 @@ impl Default for Settings {
             timeout_secs: 10,
             tls: TlsPolicy::Always,
             confirm_stop: true,
+            pause_when_offline: true,
             anonymize_logs: true,
             duration: 30,
             unit: DurationUnit::Minutes,

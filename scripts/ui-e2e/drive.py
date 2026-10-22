@@ -455,6 +455,25 @@ def network():
     check(log.count("no network for a while") == 1, f"location was switched off once, for the real outage ({log.count('no network for a while')})")
     check(log.count("network back: location on again") == 1, "and on again once")
 
+    # With "Pause When Offline" turned off, what the system says about the network is ignored.
+    proc = start_app(extra_settings="pause_when_offline = false\n")
+    click("push button", "Start Sharing")
+    wait_for(lambda: has_label("Sharing location"), 20, "Sharing location")
+    items = wait_for(lambda: [n for n in find_all("list item") if n.get_name() and "-" in n.get_name() and len(n.get_name()) == 9], 10, "a link row")
+    link_id = items[0].get_name() if items else None
+    fakes.network_down()
+    time.sleep(26)  # past the grace period
+    check(has_label("Sharing location") and not has_label("No network connection"), "with pausing off, the share does not notice the outage")
+    check(not has_label("Paused"), "and location stays on")
+    t0 = fetch_points(link_id)[-1][2]
+    time.sleep(5)
+    check(fetch_points(link_id)[-1][2] > t0, "and points keep being posted")
+    fakes.network_up()
+    click("push button", "Stop Sharing")
+    click_in_dialog("Stop Sharing")
+    wait_for(lambda: has_label("Not sharing"), 15, "Not sharing")
+    end_app(proc)
+
 
 def geoclue():
     """The real GeoClue 2.7.0 (WITH_GEOCLUE=1): the static source at 52.52, 13.405."""
