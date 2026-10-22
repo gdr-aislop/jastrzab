@@ -84,16 +84,8 @@ pub fn parse_create(reply: &Reply, mode: ShareMode) -> Result<CreateOk, Error> {
     let mut it = lines.into_iter();
     let sid = it.next().ok_or(Error::Malformed("no session ID"))?.to_string();
     let view_url = it.next().ok_or(Error::Malformed("no view URL"))?.to_string();
-    let group_pin = if mode == ShareMode::CreateGroup {
-        Some(it.next().ok_or(Error::Malformed("no group PIN"))?.to_string())
-    } else {
-        None
-    };
-    let link_id = if reply.version().is_at_least(version::LINK_IDS) {
-        Some(it.next().ok_or(Error::Malformed("no link ID"))?.to_string())
-    } else {
-        None
-    };
+    let group_pin = if mode == ShareMode::CreateGroup { Some(it.next().ok_or(Error::Malformed("no group PIN"))?.to_string()) } else { None };
+    let link_id = if reply.version().is_at_least(version::LINK_IDS) { Some(it.next().ok_or(Error::Malformed("no link ID"))?.to_string()) } else { None };
     Ok(CreateOk { sid, view_url, group_pin, link_id })
 }
 

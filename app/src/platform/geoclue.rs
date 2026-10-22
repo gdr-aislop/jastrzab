@@ -82,7 +82,10 @@ impl GeoClue {
     }
 
     async fn start_inner(&self, interval_secs: u32, generation: u64) -> Result<(), LocationFailure> {
-        let conn = match self.state.borrow().conn.clone() {
+        // Borrows are taken into locals first: a `RefCell` guard in a `match` or `if let`
+        // scrutinee lives through the whole block, including any `.await` inside it.
+        let known_conn = self.state.borrow().conn.clone();
+        let conn = match known_conn {
             Some(conn) => conn,
             None => {
                 let conn = gio::bus_get_future(gio::BusType::System).await.map_err(unavailable)?;
@@ -92,7 +95,8 @@ impl GeoClue {
         };
 
         // Already running: only the update interval changes.
-        if let Some(client) = self.state.borrow().client.clone() {
+        let running_client = self.state.borrow().client.clone();
+        if let Some(client) = running_client {
             set_property(&conn, &client, "TimeThreshold", interval_secs.to_variant()).await.map_err(unavailable)?;
             return Ok(());
         }
@@ -137,9 +141,7 @@ impl GeoClue {
             state.client = Some(client.clone());
         }
 
-        conn.call_future(Some(BUS_NAME), &client, CLIENT_IFACE, "Start", None, None, gio::DBusCallFlags::NONE, START_TIMEOUT_MSEC)
-            .await
-            .map_err(classify)?;
+        conn.call_future(Some(BUS_NAME), &client, CLIENT_IFACE, "Start", None, None, gio::DBusCallFlags::NONE, START_TIMEOUT_MSEC).await.map_err(classify)?;
 
         // A location may already be known; don't wait for the first change to show it.
         if let Ok(reply) = get_property(&conn, &client, "Location").await
@@ -173,39 +175,19 @@ async fn release_client(conn: &gio::DBusConnection, client: &str) {
 
 async fn set_property(conn: &gio::DBusConnection, path: &str, name: &str, value: glib::Variant) -> Result<(), glib::Error> {
     let args = (CLIENT_IFACE, name, value).to_variant();
-    conn.call_future(Some(BUS_NAME), path, PROPERTIES_IFACE, "Set", Some(&args), None, gio::DBusCallFlags::NONE, CALL_TIMEOUT_MSEC)
-        .await
-        .map(|_| ())
+    conn.call_future(Some(BUS_NAME), path, PROPERTIES_IFACE, "Set", Some(&args), None, gio::DBusCallFlags::NONE, CALL_TIMEOUT_MSEC).await.map(|_| ())
 }
 
 async fn get_property(conn: &gio::DBusConnection, path: &str, name: &str) -> Result<glib::Variant, glib::Error> {
     let reply = conn
-        .call_future(
-            Some(BUS_NAME),
-            path,
-            PROPERTIES_IFACE,
-            "Get",
-            Some(&(CLIENT_IFACE, name).to_variant()),
-            None,
-            gio::DBusCallFlags::NONE,
-            CALL_TIMEOUT_MSEC,
-        )
+        .call_future(Some(BUS_NAME), path, PROPERTIES_IFACE, "Get", Some(&(CLIENT_IFACE, name).to_variant()), None, gio::DBusCallFlags::NONE, CALL_TIMEOUT_MSEC)
         .await?;
     Ok(reply.child_value(0).as_variant().unwrap_or(reply))
 }
 
 async fn read_location(conn: &gio::DBusConnection, path: &str) -> Option<Fix> {
     let reply = conn
-        .call_future(
-            Some(BUS_NAME),
-            path,
-            PROPERTIES_IFACE,
-            "GetAll",
-            Some(&(LOCATION_IFACE,).to_variant()),
-            None,
-            gio::DBusCallFlags::NONE,
-            CALL_TIMEOUT_MSEC,
-        )
+        .call_future(Some(BUS_NAME), path, PROPERTIES_IFACE, "GetAll", Some(&(LOCATION_IFACE,).to_variant()), None, gio::DBusCallFlags::NONE, CALL_TIMEOUT_MSEC)
         .await
         .map_err(|err| tracing::debug!(%err, "couldn't read a location from GeoClue"))
         .ok()?;
@@ -228,12 +210,8 @@ fn fix_from_properties(dict: &glib::Variant, now: f64) -> Option<Fix> {
     }
     // Unknown values are reported as -1 (accuracy) or a negative speed.
     let speed = float("Speed").filter(|s| *s >= 0.0).map(|s| s as f32);
-    let unix_time = props
-        .lookup::<(u64, u64)>("Timestamp")
-        .ok()
-        .flatten()
-        .filter(|(secs, _)| *secs > 0)
-        .map_or(now, |(secs, micros)| secs as f64 + micros as f64 / 1e6);
+    let unix_time =
+        props.lookup::<(u64, u64)>("Timestamp").ok().flatten().filter(|(secs, _)| *secs > 0).map_or(now, |(secs, micros)| secs as f64 + micros as f64 / 1e6);
     Some(Fix {
         latitude,
         longitude,

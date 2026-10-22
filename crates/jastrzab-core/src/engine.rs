@@ -71,9 +71,14 @@ pub struct StartRequest {
 pub enum Event {
     Start(StartRequest),
     Stop,
-    NewLink { adoptable: bool },
+    NewLink {
+        adoptable: bool,
+    },
     StopLink(String),
-    Adopt { target: String, nickname: String },
+    Adopt {
+        target: String,
+        nickname: String,
+    },
     /// Copy a link (`None`: the first one) to the clipboard.
     CopyLink(Option<String>),
     CopyPin,
@@ -87,25 +92,69 @@ pub enum Event {
     LocationFailed(LocationFailure),
     Fix(Fix),
     /// A request finished. `Err` is a transport failure (no connection, TLS, timeout).
-    HttpDone { id: HttpId, result: Result<Reply, String> },
+    HttpDone {
+        id: HttpId,
+        result: Result<Reply, String>,
+    },
     Network(bool),
-    Timer { kind: TimerKind, generation: u64 },
+    Timer {
+        kind: TimerKind,
+        generation: u64,
+    },
     SettingsChanged(Settings),
+}
+
+impl Event {
+    /// A short name for logs. The events themselves are not logged: they carry coordinates,
+    /// secrets and share IDs.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Event::Start(_) => "start",
+            Event::Stop => "stop",
+            Event::NewLink { .. } => "new-link",
+            Event::StopLink(_) => "stop-link",
+            Event::Adopt { .. } => "adopt",
+            Event::CopyLink(_) => "copy-link",
+            Event::CopyPin => "copy-pin",
+            Event::ResumeAvailable(_) => "resume-available",
+            Event::Resume => "resume",
+            Event::DismissResume => "dismiss-resume",
+            Event::CheckSignal(_) => "check-signal",
+            Event::WindowVisible(_) => "window-visible",
+            Event::LocationStarted => "location-started",
+            Event::LocationFailed(_) => "location-failed",
+            Event::Fix(_) => "fix",
+            Event::HttpDone { .. } => "http-done",
+            Event::Network(_) => "network",
+            Event::Timer { .. } => "timer",
+            Event::SettingsChanged(_) => "settings-changed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocationCmd {
     /// Start (or retune) location updates at this interval. Always answered with
     /// `LocationStarted` or `LocationFailed`, even when already running.
-    Start { interval_secs: u32 },
+    Start {
+        interval_secs: u32,
+    },
     Stop,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
-    Http { id: HttpId, base: String, request: Request },
+    Http {
+        id: HttpId,
+        base: String,
+        request: Request,
+    },
     Location(LocationCmd),
-    Arm { kind: TimerKind, secs: u32, generation: u64 },
+    Arm {
+        kind: TimerKind,
+        secs: u32,
+        generation: u64,
+    },
     Disarm(TimerKind),
     /// `None` deletes the resume file.
     PersistSession(Option<Snapshot>),
@@ -164,9 +213,12 @@ struct Starting {
     resuming: Option<Session>,
 }
 
+/// Fills a buffer with cryptographically secure random bytes.
+pub type RandomFill = Box<dyn FnMut(&mut [u8])>;
+
 pub struct Engine {
     settings: Settings,
-    random: Box<dyn FnMut(&mut [u8])>,
+    random: RandomFill,
     phase: Phase,
     starting: Option<Starting>,
     session: Option<Session>,
@@ -198,7 +250,7 @@ pub struct Engine {
 
 impl Engine {
     /// `random` fills a buffer with cryptographically secure random bytes (salts and IVs).
-    pub fn new(settings: Settings, random: Box<dyn FnMut(&mut [u8])>) -> Self {
+    pub fn new(settings: Settings, random: RandomFill) -> Self {
         Self {
             settings: settings.sanitized(),
             random,
@@ -307,7 +359,8 @@ impl Engine {
             return;
         }
         if request.mode.is_group() && request.nickname.trim().is_empty() {
-            self.out.push(Effect::Dialog(DialogSpec::error(tr("Nickname Required"), tr("Group shares need a nickname so people can tell you apart on the map."))));
+            self.out
+                .push(Effect::Dialog(DialogSpec::error(tr("Nickname Required"), tr("Group shares need a nickname so people can tell you apart on the map."))));
             return;
         }
         if request.mode == Mode::JoinGroup && request.group_pin.trim().is_empty() {
@@ -449,7 +502,10 @@ impl Engine {
             self.send_farewell(created.sid, None, &starting.base);
             self.out.push(Effect::Dialog(DialogSpec::error(
                 tr("Server Is Out of Date"),
-                tr_args("This server (version {version}) does not support end-to-end encryption, so nothing was shared.", &[("version", &server_version.to_string())]),
+                tr_args(
+                    "This server (version {version}) does not support end-to-end encryption, so nothing was shared.",
+                    &[("version", &server_version.to_string())],
+                ),
             )));
             return;
         }
@@ -633,14 +689,12 @@ impl Engine {
 
     fn location_failed(&mut self, failure: LocationFailure) {
         let (heading, body) = match &failure {
-            LocationFailure::Denied => (
-                tr("Location Access Denied"),
-                tr("Jastrzab isn't allowed to use your location. Turn on location services in Settings, then try again."),
-            ),
-            LocationFailure::Unavailable(reason) => (
-                tr("Location Unavailable"),
-                tr_args("The location service is not available: {reason}", &[("reason", reason)]),
-            ),
+            LocationFailure::Denied => {
+                (tr("Location Access Denied"), tr("Jastrzab isn't allowed to use your location. Turn on location services in Settings, then try again."))
+            }
+            LocationFailure::Unavailable(reason) => {
+                (tr("Location Unavailable"), tr_args("The location service is not available: {reason}", &[("reason", reason)]))
+            }
         };
         self.location_on = false;
         match self.phase {
@@ -714,12 +768,9 @@ impl Engine {
             Poll::Control(control) => {
                 let request = match &control {
                     Control::NewLink { adoptable } => Request::NewLink(NewLink { sid, adoptable: *adoptable }),
-                    Control::Adopt { target, nickname } => Request::Adopt(Adopt {
-                        sid,
-                        nickname: nickname.clone(),
-                        target_id: target.clone(),
-                        group_pin: group_pin.unwrap_or_default(),
-                    }),
+                    Control::Adopt { target, nickname } => {
+                        Request::Adopt(Adopt { sid, nickname: nickname.clone(), target_id: target.clone(), group_pin: group_pin.unwrap_or_default() })
+                    }
                     Control::StopLink(id) => Request::Stop(Stop { sid, link_id: Some(id.clone()) }),
                 };
                 let id = self.alloc_id();
@@ -971,24 +1022,11 @@ impl Engine {
         let until = |s: &Session| StatusDetail::Until { expires_unix: s.expires_at_unix, host: host.clone() };
 
         let status = match self.phase {
-            Phase::Idle => StatusView {
-                icon: "location-services-disabled-symbolic",
-                class: "",
-                title: tr("Not sharing"),
-                detail: StatusDetail::ChooseDuration,
-            },
-            Phase::Connecting => StatusView {
-                icon: "network-transmit-receive-symbolic",
-                class: "",
-                title: tr("Connecting…"),
-                detail: StatusDetail::None,
-            },
-            Phase::Stopping => StatusView {
-                icon: "network-transmit-receive-symbolic",
-                class: "",
-                title: tr("Stopping…"),
-                detail: StatusDetail::None,
-            },
+            Phase::Idle => {
+                StatusView { icon: "location-services-disabled-symbolic", class: "", title: tr("Not sharing"), detail: StatusDetail::ChooseDuration }
+            }
+            Phase::Connecting => StatusView { icon: "network-transmit-receive-symbolic", class: "", title: tr("Connecting…"), detail: StatusDetail::None },
+            Phase::Stopping => StatusView { icon: "network-transmit-receive-symbolic", class: "", title: tr("Stopping…"), detail: StatusDetail::None },
             Phase::Active => {
                 let detail = session.map_or(StatusDetail::None, until);
                 match &self.conn {
@@ -999,7 +1037,7 @@ impl Engine {
                         icon: "network-offline-symbolic",
                         class: "error",
                         title: tr("Server reported a problem"),
-                        detail: StatusDetail::Message(message.clone()),
+                        detail: StatusDetail::Message(shorten(message, MAX_STATUS_MESSAGE_CHARS)),
                     },
                 }
             }
@@ -1087,6 +1125,16 @@ impl Failure {
             }
         }
     }
+}
+
+/// A server's message can be any length; the status row shows a bounded part of it.
+const MAX_STATUS_MESSAGE_CHARS: usize = 160;
+
+/// At most `max` characters of `text`, ending in `…` when cut. Cuts on a character boundary.
+fn shorten(text: &str, max: usize) -> String {
+    let mut chars = text.chars();
+    let head: String = chars.by_ref().take(max).collect();
+    if chars.next().is_some() { format!("{}…", head.trim_end()) } else { head }
 }
 
 /// `https://user@host:8443/path/` → `host:8443`.

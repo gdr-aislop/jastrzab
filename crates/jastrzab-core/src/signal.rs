@@ -179,11 +179,7 @@ impl SignalMonitor {
     /// satellite fixes. Network sources only report when the position changes, so a stationary
     /// phone is quiet for long stretches and gets a much longer window.
     pub fn lost_after_secs(&self) -> u32 {
-        if self.last_fix_gps {
-            (3 * self.interval_secs).max(10)
-        } else {
-            (12 * self.interval_secs).max(120)
-        }
+        if self.last_fix_gps { (3 * self.interval_secs).max(10) } else { (12 * self.interval_secs).max(120) }
     }
 
     pub fn has_fix(&self) -> bool {
@@ -264,16 +260,8 @@ impl SignalMonitor {
                 Some(tr("Nobody can see you yet.")),
                 Some(tr("Go outside or stand near a window. Roofs, walls and vehicles block GPS. Keep this screen open.")),
             ),
-            Level::Poor => (
-                tr("Poor"),
-                Some(tr("Viewers will only see your rough area.")),
-                Some(tr("Move to open sky and wait a moment for a better fix.")),
-            ),
-            Level::Fair => (
-                tr("Fair"),
-                Some(tr("Viewers may see you on the wrong street.")),
-                Some(tr("A clearer view of the sky will improve this.")),
-            ),
+            Level::Poor => (tr("Poor"), Some(tr("Viewers will only see your rough area.")), Some(tr("Move to open sky and wait a moment for a better fix."))),
+            Level::Fair => (tr("Fair"), Some(tr("Viewers may see you on the wrong street.")), Some(tr("A clearer view of the sky will improve this."))),
             Level::Good => (tr("Good"), Some(tr("Viewers will see you at the right building.")), None),
             Level::Excellent => (tr("Excellent"), Some(tr("Viewers will see you in the right spot.")), None),
             Level::Lost => (
@@ -313,9 +301,11 @@ impl SignalMonitor {
             bars: level.bars(),
             css_class: level.css_class(),
             description: tr_args("GPS signal: {summary}", &[("summary", &summary)]),
-            accuracy: measured.then(|| {
-                if self.last_accuracy >= 10.0 { tr_args("{accuracy} (estimate)", &[("accuracy", &accuracy)]) } else { accuracy.clone() }
-            }),
+            accuracy: measured.then(
+                || {
+                    if self.last_accuracy >= 10.0 { tr_args("{accuracy} (estimate)", &[("accuracy", &accuracy)]) } else { accuracy.clone() }
+                },
+            ),
             source: measured.then(|| if gps { tr("Satellites (GPS)") } else { tr("Wi-Fi or mobile network (approximate)") }),
             last_update: if measured {
                 Some(tr("Just now"))

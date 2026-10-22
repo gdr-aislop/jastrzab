@@ -12,10 +12,10 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
+use hauk::Version;
 use hauk::crypto::{E2eKey, IV_LEN, SALT_LEN, from_b64};
 use hauk::request::{Adopt, Create, E2ePost, NewLink, Post, Provider, Request, ShareMode, Stop};
 use hauk::response::{self, Reply};
-use hauk::Version;
 
 fn target() -> Option<(String, String)> {
     Some((std::env::var("HAUK_TEST_URL").ok()?, std::env::var("HAUK_TEST_PASSWORD").ok()?))
@@ -34,10 +34,7 @@ fn http(base: &str, method: &str, path: &str, body: &str) -> Reply {
     stream.read_to_string(&mut raw).unwrap();
     let (head, body) = raw.split_once("\r\n\r\n").expect("a response");
     let status = head.lines().next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
-    let version = head
-        .lines()
-        .find_map(|l| l.strip_prefix(&format!("{}: ", hauk::VERSION_HEADER)))
-        .and_then(Version::parse);
+    let version = head.lines().find_map(|l| l.strip_prefix(&format!("{}: ", hauk::VERSION_HEADER))).and_then(Version::parse);
     Reply { status, version, body: body.to_string() }
 }
 
@@ -102,7 +99,7 @@ fn solo_share_lifecycle() {
     let reply = send(&base, &point(&created.sid, 52.5200066, None));
     let posted = response::parse_post(&reply).expect("post");
     let links = posted.links.expect("link list");
-    assert_eq!(links.ids, [link_id.clone()]);
+    assert_eq!(links.ids, std::slice::from_ref(&link_id));
     assert!(links.url_for(&link_id).ends_with(&link_id));
 
     let shown = fetch(&base, &link_id);
@@ -116,7 +113,7 @@ fn solo_share_lifecycle() {
     let reply = send(&base, &Request::Stop(Stop { sid: created.sid.clone(), link_id: Some(extra.link_id) }));
     response::parse_ok(&reply).expect("stop one link");
     let reply = send(&base, &point(&created.sid, 52.5202, None));
-    assert_eq!(response::parse_post(&reply).unwrap().links.unwrap().ids, [link_id.clone()]);
+    assert_eq!(response::parse_post(&reply).unwrap().links.unwrap().ids, std::slice::from_ref(&link_id));
 
     let reply = send(&base, &Request::Stop(Stop { sid: created.sid.clone(), link_id: None }));
     response::parse_ok(&reply).expect("stop the session");
@@ -183,10 +180,8 @@ fn group_host_join_and_adoption() {
     // A third person shares alone, then the host adopts that share into the group.
     let reply = send(&base, &Request::Create(create(&password, ShareMode::Alone, None, None, None)));
     let solo = response::parse_create(&reply, ShareMode::Alone).expect("solo");
-    let reply = send(
-        &base,
-        &Request::Adopt(Adopt { sid: host.sid.clone(), nickname: "Adopted".into(), target_id: solo.link_id.clone().unwrap(), group_pin: pin }),
-    );
+    let reply =
+        send(&base, &Request::Adopt(Adopt { sid: host.sid.clone(), nickname: "Adopted".into(), target_id: solo.link_id.clone().unwrap(), group_pin: pin }));
     response::parse_ok(&reply).expect("adopt");
 
     for sid in [&host.sid, &guest.sid, &solo.sid] {

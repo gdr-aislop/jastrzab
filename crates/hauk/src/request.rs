@@ -128,12 +128,7 @@ impl Request {
             Request::NewLink(r) => {
                 vec![("sid", r.sid.clone()), ("ado", flag(r.adoptable))]
             }
-            Request::Adopt(r) => vec![
-                ("sid", r.sid.clone()),
-                ("nic", r.nickname.clone()),
-                ("aid", r.target_id.clone()),
-                ("pin", r.group_pin.clone()),
-            ],
+            Request::Adopt(r) => vec![("sid", r.sid.clone()), ("nic", r.nickname.clone()), ("aid", r.target_id.clone()), ("pin", r.group_pin.clone())],
             Request::Stop(r) => {
                 let mut form = vec![("sid", r.sid.clone())];
                 if let Some(link_id) = &r.link_id {
@@ -301,16 +296,7 @@ mod tests {
     }
 
     fn post() -> Post {
-        Post {
-            sid: "S".into(),
-            latitude: 52.5,
-            longitude: -1.25,
-            time: 1_700_000_000.5,
-            provider: Provider::Fine,
-            speed: Some(1.5),
-            accuracy: None,
-            e2e: None,
-        }
+        Post { sid: "S".into(), latitude: 52.5, longitude: -1.25, time: 1_700_000_000.5, provider: Provider::Fine, speed: Some(1.5), accuracy: None, e2e: None }
     }
 
     #[test]
@@ -339,13 +325,7 @@ mod tests {
     fn other_calls() {
         let form = Request::NewLink(NewLink { sid: "S".into(), adoptable: false }).form();
         assert_eq!(form, [("sid", "S".to_string()), ("ado", "0".to_string())]);
-        let form = Request::Adopt(Adopt {
-            sid: "S".into(),
-            nickname: "Bo".into(),
-            target_id: "T".into(),
-            group_pin: "123456".into(),
-        })
-        .form();
+        let form = Request::Adopt(Adopt { sid: "S".into(), nickname: "Bo".into(), target_id: "T".into(), group_pin: "123456".into() }).form();
         assert_eq!(names(&form), ["sid", "nic", "aid", "pin"]);
         assert_eq!(Request::Stop(Stop { sid: "S".into(), link_id: None }).form().len(), 1);
         assert_eq!(get(&Request::Stop(Stop { sid: "S".into(), link_id: Some("L".into()) }).form(), "lid"), Some("L"));

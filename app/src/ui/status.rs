@@ -49,9 +49,7 @@ impl StatusSection {
         let subtitle = match &status.detail {
             StatusDetail::ChooseDuration => tr("Choose how long to share, then start"),
             StatusDetail::None => String::new(),
-            StatusDetail::Until { expires_unix, host } => {
-                tr_args("Until {time} · {server}", &[("time", &format_clock(*expires_unix)), ("server", host)])
-            }
+            StatusDetail::Until { expires_unix, host } => tr_args("Until {time} · {server}", &[("time", &format_clock(*expires_unix)), ("server", host)]),
             StatusDetail::Message(text) => text.clone(),
         };
         set_subtitle(&self.row, &subtitle);

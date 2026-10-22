@@ -30,20 +30,17 @@ impl Kind {
 }
 
 fn schema() -> Schema {
-    Schema::new(
-        APP_ID,
-        SchemaFlags::NONE,
-        HashMap::from([("kind", SchemaAttributeType::String), ("server", SchemaAttributeType::String)]),
-    )
+    Schema::new(APP_ID, SchemaFlags::NONE, HashMap::from([("kind", SchemaAttributeType::String), ("server", SchemaAttributeType::String)]))
 }
 
-fn attributes<'a>(kind: Kind, server: &'a str) -> HashMap<&'a str, &'a str> {
+fn attributes(kind: Kind, server: &str) -> HashMap<&str, &str> {
     HashMap::from([("kind", kind.attribute()), ("server", server)])
 }
 
 /// The stored secret for this server, or an empty string if there is none or the keyring is
 /// unavailable (which is logged, not shown: the server will say if a password is needed).
 pub async fn lookup(kind: Kind, server: &str) -> String {
+    tracing::debug!(kind = kind.attribute(), "reading a secret from the keyring");
     match libsecret::password_lookup_future(Some(&schema()), attributes(kind, server)).await {
         Ok(secret) => secret.map(|s| s.to_string()).unwrap_or_default(),
         Err(err) => {

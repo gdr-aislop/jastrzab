@@ -16,10 +16,6 @@ fn main() {
         accuracy: Some(4.0),
         e2e: Some(E2ePost { key: E2eKey::derive(password.as_bytes(), &salt), iv: hauk::crypto::random_bytes::<IV_LEN>() }),
     };
-    let fields: Vec<String> = Request::Post(post)
-        .form()
-        .into_iter()
-        .map(|(name, value)| format!("\"{name}\":\"{value}\""))
-        .collect();
+    let fields: Vec<String> = Request::Post(post).form().into_iter().map(|(name, value)| format!("\"{name}\":\"{value}\"")).collect();
     println!("{{\"password\":\"{password}\",\"salt\":\"{}\",{}}}", b64(&salt), fields.join(","));
 }

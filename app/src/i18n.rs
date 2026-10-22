@@ -16,4 +16,3 @@ pub fn init() {
     let _ = textdomain(DOMAIN);
     jastrzab_core::i18n::set_translator(|message| gettext(message));
 }
-

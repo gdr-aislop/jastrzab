@@ -18,7 +18,8 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
 
     // --- Server ----------------------------------------------------------------------------
     let server = adw::PreferencesGroup::builder().title(tr("Server")).build();
-    let address = adw::EntryRow::builder().title(tr("Server address")).input_purpose(gtk::InputPurpose::Url).text(&settings.server_url).show_apply_button(true).build();
+    let address =
+        adw::EntryRow::builder().title(tr("Server address")).input_purpose(gtk::InputPurpose::Url).text(&settings.server_url).show_apply_button(true).build();
     {
         let controller = controller.clone();
         address.connect_apply(move |row| {
@@ -59,7 +60,13 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
 
     // --- Location updates ------------------------------------------------------------------
     let updates = adw::PreferencesGroup::builder().title(tr("Location Updates")).build();
-    let (interval_row, interval) = spin_row(&tr("Update interval"), &tr("Seconds between positions sent to the server. Longer saves battery."), 1.0, 3600.0, f64::from(settings.interval_secs));
+    let (interval_row, interval) = spin_row(
+        &tr("Update interval"),
+        &tr("Seconds between positions sent to the server. Longer saves battery."),
+        1.0,
+        3600.0,
+        f64::from(settings.interval_secs),
+    );
     wrap_row(&interval_row);
     {
         let controller = controller.clone();
@@ -69,7 +76,8 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
         });
     }
     updates.add(&interval_row);
-    let (distance_row, distance) = spin_row(&tr("Minimum distance"), &tr("Metres to move before sending a new position. 0 sends every update."), 0.0, 100_000.0, settings.min_distance_m);
+    let (distance_row, distance) =
+        spin_row(&tr("Minimum distance"), &tr("Metres to move before sending a new position. 0 sends every update."), 0.0, 100_000.0, settings.min_distance_m);
     wrap_row(&distance_row);
     {
         let controller = controller.clone();
@@ -211,7 +219,8 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
 
     // --- Diagnostics -----------------------------------------------------------------------
     let diagnostics = adw::PreferencesGroup::builder().title(tr("Diagnostics")).build();
-    let (anonymize_row, anonymize) = switch_row(&tr("Anonymize Logs"), &tr("Hide the server address, user name and share IDs in log files."), settings.anonymize_logs);
+    let (anonymize_row, anonymize) =
+        switch_row(&tr("Anonymize Logs"), &tr("Hide the server address, user name and share IDs in log files."), settings.anonymize_logs);
     {
         let controller = controller.clone();
         anonymize.connect_active_notify(move |switch| {

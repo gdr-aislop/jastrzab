@@ -49,7 +49,7 @@ impl Harness {
     fn with(settings: Settings) -> Self {
         // Deterministic "random" bytes: 1, 2, 3, ...
         let mut counter = 0u8;
-        let random: Box<dyn FnMut(&mut [u8])> = Box::new(move |buf: &mut [u8]| {
+        let random: RandomFill = Box::new(move |buf: &mut [u8]| {
             for b in buf {
                 counter = counter.wrapping_add(1);
                 *b = counter;
@@ -457,6 +457,25 @@ fn a_server_message_on_post_is_shown_in_the_status_row() {
     let status = h.engine.view().status;
     assert_eq!(status.title, "Server reported a problem");
     assert_eq!(status.detail, StatusDetail::Message("Session expired!".into()));
+}
+
+#[test]
+fn a_very_long_server_message_is_cut_in_the_status_row() {
+    let mut h = Harness::new();
+    h.activate();
+    let id = http_id(&h.send(Event::Fix(gps_fix(1.0, 3.0, 1.0))));
+    let long = format!("Error: {}\n", "unhappy ".repeat(200));
+    h.send(Event::HttpDone { id, result: Ok(reply("1.6.3", &long)) });
+    let StatusDetail::Message(text) = h.engine.view().status.detail else { panic!("a message") };
+    assert!(text.chars().count() <= 161, "{}", text.chars().count());
+    assert!(text.ends_with('…') && text.starts_with("Error: unhappy"));
+}
+
+#[test]
+fn shortening_respects_character_boundaries() {
+    assert_eq!(shorten("héllo wörld", 5), "héllo…");
+    assert_eq!(shorten("short", 10), "short");
+    assert_eq!(shorten("exactly5", 8), "exactly5");
 }
 
 #[test]

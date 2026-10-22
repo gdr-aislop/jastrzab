@@ -73,8 +73,18 @@ pub fn wrap_row(row: &adw::ActionRow) {
 // functions are declared here. They exist in GTK 4.0 and later; libgtk-4 is already linked.
 
 unsafe extern "C" {
-    fn gtk_accessible_update_property_value(accessible: *mut std::ffi::c_void, n_properties: std::ffi::c_int, properties: *mut std::ffi::c_int, values: *const glib::gobject_ffi::GValue);
-    fn gtk_accessible_update_state_value(accessible: *mut std::ffi::c_void, n_states: std::ffi::c_int, states: *mut std::ffi::c_int, values: *const glib::gobject_ffi::GValue);
+    fn gtk_accessible_update_property_value(
+        accessible: *mut std::ffi::c_void,
+        n_properties: std::ffi::c_int,
+        properties: *mut std::ffi::c_int,
+        values: *const glib::gobject_ffi::GValue,
+    );
+    fn gtk_accessible_update_state_value(
+        accessible: *mut std::ffi::c_void,
+        n_states: std::ffi::c_int,
+        states: *mut std::ffi::c_int,
+        values: *const glib::gobject_ffi::GValue,
+    );
 }
 
 fn update_property(widget: &impl IsA<gtk::Widget>, property: gtk::AccessibleProperty, value: glib::Value) {
@@ -167,10 +177,7 @@ pub fn format_countdown(remaining_secs: i64) -> String {
 
 /// The local wall-clock time, `17:23`.
 pub fn format_clock(unix_secs: f64) -> String {
-    glib::DateTime::from_unix_local(unix_secs as i64)
-        .ok()
-        .and_then(|time| time.format("%H:%M").ok())
-        .map_or_else(String::new, |text| text.to_string())
+    glib::DateTime::from_unix_local(unix_secs as i64).ok().and_then(|time| time.format("%H:%M").ok()).map_or_else(String::new, |text| text.to_string())
 }
 
 #[cfg(test)]

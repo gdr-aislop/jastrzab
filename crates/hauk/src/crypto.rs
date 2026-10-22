@@ -36,8 +36,7 @@ pub struct E2eKey([u8; KEY_LEN]);
 impl E2eKey {
     pub fn derive(password: &[u8], salt: &[u8]) -> Self {
         let mut key = [0u8; KEY_LEN];
-        pbkdf2::pbkdf2::<Hmac<Sha1>>(password, salt, PBKDF2_ITERATIONS, &mut key)
-            .expect("HMAC accepts a key of any length");
+        pbkdf2::pbkdf2::<Hmac<Sha1>>(password, salt, PBKDF2_ITERATIONS, &mut key).expect("HMAC accepts a key of any length");
         Self(key)
     }
 

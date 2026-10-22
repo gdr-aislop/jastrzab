@@ -106,7 +106,8 @@ impl Notifier {
                 let hints = glib::VariantDict::new(None);
                 hints.insert("resident", true);
                 hints.insert("desktop-entry", APP_ID);
-                let actions = [DEFAULT_ACTION.to_string(), tr("Open"), ACTION_COPY_LINK.to_string(), tr("Copy Link"), ACTION_STOP.to_string(), tr("Stop Sharing")];
+                let actions =
+                    [DEFAULT_ACTION.to_string(), tr("Open"), ACTION_COPY_LINK.to_string(), tr("Copy Link"), ACTION_STOP.to_string(), tr("Stop Sharing")];
                 let args = glib::Variant::tuple_from_iter([
                     tr("Jastrzab").to_variant(),
                     id.to_variant(),
@@ -117,9 +118,7 @@ impl Notifier {
                     hints.end(),
                     (-1i32).to_variant(),
                 ]);
-                let reply = conn
-                    .call_future(Some(BUS_NAME), OBJECT_PATH, BUS_NAME, "Notify", Some(&args), None, gio::DBusCallFlags::NONE, 5_000)
-                    .await?;
+                let reply = conn.call_future(Some(BUS_NAME), OBJECT_PATH, BUS_NAME, "Notify", Some(&args), None, gio::DBusCallFlags::NONE, 5_000).await?;
                 if let Some((new_id,)) = reply.get::<(u32,)>() {
                     self.inner.id.set(new_id);
                 }
@@ -134,31 +133,47 @@ impl Notifier {
         }
         let conn = gio::bus_get_future(gio::BusType::Session).await?;
         let this = self.clone();
-        let invoked = conn.subscribe_to_signal(Some(BUS_NAME), Some(BUS_NAME), Some("ActionInvoked"), Some(OBJECT_PATH), None, gio::DBusSignalFlags::NONE, move |signal| {
-            let Some((id, action)) = signal.parameters.get::<(u32, String)>() else { return };
-            if id != this.inner.id.get() {
-                return;
-            }
-            match action.as_str() {
-                ACTION_COPY_LINK => {
-                    let _ = this.inner.events.try_send(Event::CopyLink(None));
+        let invoked = conn.subscribe_to_signal(
+            Some(BUS_NAME),
+            Some(BUS_NAME),
+            Some("ActionInvoked"),
+            Some(OBJECT_PATH),
+            None,
+            gio::DBusSignalFlags::NONE,
+            move |signal| {
+                let Some((id, action)) = signal.parameters.get::<(u32, String)>() else { return };
+                if id != this.inner.id.get() {
+                    return;
                 }
-                ACTION_STOP => {
-                    let _ = this.inner.events.try_send(Event::Stop);
+                match action.as_str() {
+                    ACTION_COPY_LINK => {
+                        let _ = this.inner.events.try_send(Event::CopyLink(None));
+                    }
+                    ACTION_STOP => {
+                        let _ = this.inner.events.try_send(Event::Stop);
+                    }
+                    _ => (this.inner.activate)(),
                 }
-                _ => (this.inner.activate)(),
-            }
-        });
+            },
+        );
         let this = self.clone();
-        let closed = conn.subscribe_to_signal(Some(BUS_NAME), Some(BUS_NAME), Some("NotificationClosed"), Some(OBJECT_PATH), None, gio::DBusSignalFlags::NONE, move |signal| {
-            if let Some((id, _reason)) = signal.parameters.get::<(u32, u32)>()
-                && id == this.inner.id.get()
-            {
-                // Dismissed by the user. The in-app rows stay the source of truth, so it is not
-                // brought back until its text changes.
-                this.inner.id.set(0);
-            }
-        });
+        let closed = conn.subscribe_to_signal(
+            Some(BUS_NAME),
+            Some(BUS_NAME),
+            Some("NotificationClosed"),
+            Some(OBJECT_PATH),
+            None,
+            gio::DBusSignalFlags::NONE,
+            move |signal| {
+                if let Some((id, _reason)) = signal.parameters.get::<(u32, u32)>()
+                    && id == this.inner.id.get()
+                {
+                    // Dismissed by the user. The in-app rows stay the source of truth, so it is not
+                    // brought back until its text changes.
+                    this.inner.id.set(0);
+                }
+            },
+        );
         self.inner.subscriptions.borrow_mut().extend([invoked, closed]);
         *self.inner.conn.borrow_mut() = Some(conn.clone());
         Ok(conn)

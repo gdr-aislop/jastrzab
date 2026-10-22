@@ -11,8 +11,8 @@ pub mod signal;
 
 pub use geo::Fix;
 pub use paths::AppPaths;
+pub mod engine;
+pub mod session;
 pub mod settings;
 pub mod uplink;
-pub mod session;
 pub mod view;
-pub mod engine;

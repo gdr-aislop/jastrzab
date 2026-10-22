@@ -34,10 +34,8 @@ impl ShareForm {
             .build();
         group.add(&unit);
 
-        let mode = adw::ComboRow::builder()
-            .title(tr("Sharing mode"))
-            .model(&gtk::StringList::new(&[&tr("Just Me"), &tr("Create Group"), &tr("Join Group")]))
-            .build();
+        let mode =
+            adw::ComboRow::builder().title(tr("Sharing mode")).model(&gtk::StringList::new(&[&tr("Just Me"), &tr("Create Group"), &tr("Join Group")])).build();
         group.add(&mode);
 
         let (adopt_row, adopt) = switch_row(&tr("Allow Adoption"), &tr("Others may add you to their group share"), settings.adoptable);

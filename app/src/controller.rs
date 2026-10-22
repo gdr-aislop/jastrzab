@@ -11,11 +11,11 @@ use std::rc::{Rc, Weak};
 
 use adw::prelude::*;
 use async_channel::Sender;
+use jastrzab_core::AppPaths;
 use jastrzab_core::engine::{Effect, Engine, Event, LocationCmd, Now, StartRequest, TimerKind};
 use jastrzab_core::session::Snapshot;
 use jastrzab_core::settings::{DurationUnit, Mode, ProxyKind, Settings};
 use jastrzab_core::view::{DialogSpec, PhaseView, Toast, View};
-use jastrzab_core::AppPaths;
 
 use crate::platform::http::Http;
 use crate::platform::inhibit::SleepInhibitor;
@@ -157,6 +157,7 @@ impl Controller {
 
     /// Reads the secrets for the current server and starts a share.
     pub fn start(&self, form: FormValues) {
+        tracing::debug!("the Start button was pressed");
         let settings = self.settings();
         let server = settings.server_base().unwrap_or_default();
         let tx = self.inner.tx.clone();
@@ -196,7 +197,7 @@ impl Controller {
     /// Shows the window, creating it if the app is running without one (a share kept going after
     /// the window was closed).
     pub fn present_window(&self) {
-        if let Some(window) = self.inner.window.borrow().as_ref() {
+        if let Some(window) = self.window() {
             window.present();
             return;
         }
@@ -218,12 +219,18 @@ impl Controller {
     }
 
     pub fn open_preferences(&self) {
-        if let Some(window) = self.inner.window.borrow().as_ref() {
+        if let Some(window) = self.window() {
             window.open_preferences();
         }
     }
 
     // --- the event loop ----------------------------------------------------------------------
+
+    /// The open window, if any. Cloned out of the cell so no borrow is held while the window runs
+    /// code that could call back into the controller.
+    fn window(&self) -> Option<MainWindow> {
+        self.inner.window.borrow().clone()
+    }
 
     fn now(&self) -> Now {
         Now {
@@ -233,12 +240,13 @@ impl Controller {
     }
 
     fn dispatch(&self, event: Event) {
+        tracing::debug!(event = event.name(), "handling");
         let effects = self.inner.engine.borrow_mut().handle(event, self.now());
         for effect in effects {
             self.execute(effect);
         }
         let view = self.view();
-        if let Some(window) = self.inner.window.borrow().as_ref() {
+        if let Some(window) = self.window() {
             window.render(&view);
         }
         if self.inner.quit_when_idle.get() && view.phase == PhaseView::Idle {
@@ -287,13 +295,13 @@ impl Controller {
     }
 
     fn toast(&self, toast: &Toast) {
-        if let Some(window) = self.inner.window.borrow().as_ref() {
+        if let Some(window) = self.window() {
             window.toast(toast);
         }
     }
 
     fn dialog(&self, spec: DialogSpec) {
-        match self.inner.window.borrow().as_ref() {
+        match self.window() {
             Some(window) => window.dialog(&spec),
             None => self.inner.pending_dialogs.borrow_mut().push(spec),
         }

@@ -1,4 +1,6 @@
-//! Dialogs. `AdwMessageDialog` is the only dialog type in libadwaita 1.2. Every dialog is
+//! Dialogs. `AdwMessageDialog` is the only dialog type in libadwaita 1.2. Response labels carry no
+//! mnemonic underscores: libadwaita 1.2.2 gives such a button the accessible name "_Cancel Cancel",
+//! which a screen reader would read out literally, and mnemonics mean nothing on a touch screen. Every dialog is
 //! presented from an idle callback, after the caller's window is on screen: in a headless Phoc a
 //! dialog presented in the same main-loop iteration as its parent was mapped but never shown.
 
@@ -18,10 +20,10 @@ fn present_deferred(dialog: &adw::MessageDialog) {
 /// An error or a decision the user has to read. `open_preferences` adds a button for it.
 pub fn error(parent: &adw::ApplicationWindow, spec: &DialogSpec, controller: &Controller) {
     let dialog = adw::MessageDialog::new(Some(parent), Some(&spec.heading), Some(&spec.body));
-    dialog.add_response("close", &tr("_Close"));
+    dialog.add_response("close", &tr("Close"));
     dialog.set_close_response("close");
     if spec.open_preferences {
-        dialog.add_response("preferences", &tr("_Preferences"));
+        dialog.add_response("preferences", &tr("Preferences"));
         dialog.set_response_appearance("preferences", adw::ResponseAppearance::Suggested);
         dialog.set_default_response(Some("preferences"));
         let controller = controller.clone();
@@ -44,7 +46,7 @@ pub fn explain_adoption(parent: &adw::ApplicationWindow) {
             "When adoption is allowed, the host of a group share can add your existing share to their group by entering its link. You don't have to do anything: you simply show up on their map under the nickname they choose. This is handy when you are driving and can't type.\n\nAdoption does not work with end-to-end encrypted shares.",
         )),
     );
-    dialog.add_response("close", &tr("_Close"));
+    dialog.add_response("close", &tr("Close"));
     dialog.set_close_response("close");
     present_deferred(&dialog);
 }
@@ -52,8 +54,8 @@ pub fn explain_adoption(parent: &adw::ApplicationWindow) {
 /// "Stop Sharing?" with Cancel as the default, since stopping is the destructive choice.
 pub fn confirm_stop(parent: &adw::ApplicationWindow, controller: &Controller) {
     let dialog = adw::MessageDialog::new(Some(parent), Some(&tr("Stop Sharing?")), Some(&tr("People following your link will stop seeing your location.")));
-    dialog.add_response("cancel", &tr("_Cancel"));
-    dialog.add_response("stop", &tr("_Stop Sharing"));
+    dialog.add_response("cancel", &tr("Cancel"));
+    dialog.add_response("stop", &tr("Stop Sharing"));
     dialog.set_response_appearance("stop", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("cancel"));
     dialog.set_close_response("cancel");
@@ -74,9 +76,9 @@ pub fn keep_sharing(parent: &adw::ApplicationWindow, answer: impl Fn(Option<bool
         Some(&tr("Keep Sharing?")),
         Some(&tr("Your location is still being shared. You can keep sharing in the background and stop from the notification.")),
     );
-    dialog.add_response("cancel", &tr("_Cancel"));
-    dialog.add_response("stop", &tr("_Stop Sharing"));
-    dialog.add_response("keep", &tr("_Keep Sharing"));
+    dialog.add_response("cancel", &tr("Cancel"));
+    dialog.add_response("stop", &tr("Stop Sharing"));
+    dialog.add_response("keep", &tr("Keep Sharing"));
     dialog.set_response_appearance("stop", adw::ResponseAppearance::Destructive);
     dialog.set_response_appearance("keep", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("keep"));
@@ -91,15 +93,19 @@ pub fn keep_sharing(parent: &adw::ApplicationWindow, answer: impl Fn(Option<bool
 
 /// Add someone's existing share to this group: their link (or its ID) and the nickname to show.
 pub fn adopt_share(parent: &adw::ApplicationWindow, controller: &Controller) {
-    let dialog = adw::MessageDialog::new(Some(parent), Some(&tr("Add Existing Share")), Some(&tr("Enter the link or ID of the share to add, and the nickname to show on the map.")));
+    let dialog = adw::MessageDialog::new(
+        Some(parent),
+        Some(&tr("Add Existing Share")),
+        Some(&tr("Enter the link or ID of the share to add, and the nickname to show on the map.")),
+    );
     let list = boxed_list();
     let target = adw::EntryRow::builder().title(tr("Share link or ID")).input_purpose(gtk::InputPurpose::Url).build();
     let nickname = adw::EntryRow::builder().title(tr("Nickname")).input_purpose(gtk::InputPurpose::Name).build();
     list.append(&target);
     list.append(&nickname);
     dialog.set_extra_child(Some(&list));
-    dialog.add_response("cancel", &tr("_Cancel"));
-    dialog.add_response("add", &tr("_Add"));
+    dialog.add_response("cancel", &tr("Cancel"));
+    dialog.add_response("add", &tr("Add"));
     dialog.set_response_appearance("add", adw::ResponseAppearance::Suggested);
     dialog.set_default_response(Some("add"));
     dialog.set_close_response("cancel");

@@ -60,10 +60,7 @@ const PERIODIC_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 
 impl BufferedLogWriter {
     fn new(appender: RollingFileAppender) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(std::io::BufWriter::with_capacity(LOG_BUFFER_CAPACITY, appender))),
-            dirty: Arc::new(AtomicBool::new(false)),
-        }
+        Self { inner: Arc::new(Mutex::new(std::io::BufWriter::with_capacity(LOG_BUFFER_CAPACITY, appender))), dirty: Arc::new(AtomicBool::new(false)) }
     }
 
     /// Flushes only if something was written since the last flush — used both by the periodic
@@ -72,10 +69,10 @@ impl BufferedLogWriter {
     /// immediately beforehand, which is what actually needs flushing, so `dirty` is already true
     /// by the time that call lands here — this never skips a flush a panic depends on.
     fn flush(&self) {
-        if self.dirty.swap(false, Ordering::Relaxed) {
-            if let Ok(mut writer) = self.inner.lock() {
-                let _ = writer.flush();
-            }
+        if self.dirty.swap(false, Ordering::Relaxed)
+            && let Ok(mut writer) = self.inner.lock()
+        {
+            let _ = writer.flush();
         }
     }
 }
@@ -155,9 +152,7 @@ where
     O: for<'a> tracing_subscriber::fmt::MakeWriter<'a> + Send + Sync + 'static,
 {
     use crate::log_privacy::RedactingMakeWriter;
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(false)
-        .with_writer(RedactingMakeWriter::new(file_sink, redactor.clone()));
+    let file_layer = tracing_subscriber::fmt::layer().with_ansi(false).with_writer(RedactingMakeWriter::new(file_sink, redactor.clone()));
     let stdout_layer = tracing_subscriber::fmt::layer().with_writer(RedactingMakeWriter::new(stdout_sink, redactor));
     tracing_subscriber::registry().with(filter).with(file_layer).with(stdout_layer)
 }
@@ -201,9 +196,11 @@ pub fn init_logging(paths: &jastrzab_core::AppPaths) -> LogHandle {
         let writer = writer.clone();
         std::thread::Builder::new()
             .name("log-flush".to_string())
-            .spawn(move || loop {
-                std::thread::sleep(PERIODIC_FLUSH_INTERVAL);
-                writer.flush();
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(PERIODIC_FLUSH_INTERVAL);
+                    writer.flush();
+                }
             })
             .expect("spawn the periodic log-flush thread");
     }
@@ -387,7 +384,6 @@ pub fn attach_crash_handler() -> Option<ClientHandles> {
 
     Some(ClientHandles { _handler: handler, _client: client, _server_process: server_process })
 }
-
 
 #[cfg(test)]
 mod tests {

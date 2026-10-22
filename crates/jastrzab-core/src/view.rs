@@ -19,7 +19,10 @@ pub enum StatusDetail {
     ChooseDuration,
     None,
     /// "Until 17:23 · host"
-    Until { expires_unix: f64, host: String },
+    Until {
+        expires_unix: f64,
+        host: String,
+    },
     /// Free text from the server or the network layer; may be long.
     Message(String),
 }

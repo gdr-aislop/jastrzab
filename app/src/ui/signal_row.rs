@@ -40,6 +40,9 @@ impl SignalSection {
         let group = adw::PreferencesGroup::new();
         let row = adw::ExpanderRow::builder().title(tr("GPS signal")).build();
         row.set_subtitle(&tr("Not checking"));
+        // The expander row is a list item of its own: without this it has a description (set on
+        // every level change) but no name.
+        set_accessible_label(&row, &tr("GPS signal"));
         let icon = gtk::Image::from_icon_name("find-location-symbolic");
         row.add_prefix(&icon);
 

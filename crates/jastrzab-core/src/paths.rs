@@ -84,9 +84,7 @@ impl AppPaths {
                 continue;
             }
             let name = entry.file_name();
-            let is_log = name
-                .to_str()
-                .is_some_and(|n| n == LOG_FILE_PREFIX || n.strip_prefix(LOG_FILE_PREFIX).is_some_and(|rest| rest.starts_with('.')));
+            let is_log = name.to_str().is_some_and(|n| n == LOG_FILE_PREFIX || n.strip_prefix(LOG_FILE_PREFIX).is_some_and(|rest| rest.starts_with('.')));
             if is_log && newest.as_ref().is_none_or(|(best, _)| name > *best) {
                 newest = Some((name, entry.path()));
             }

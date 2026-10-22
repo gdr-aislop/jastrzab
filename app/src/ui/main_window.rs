@@ -100,7 +100,8 @@ impl MainWindow {
 
         // All page content lives in a vertical-only scroller, so that no amount of content can
         // raise the window's minimum size.
-        let page = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(24).margin_top(18).margin_bottom(18).margin_start(12).margin_end(12).build();
+        let page =
+            gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(24).margin_top(18).margin_bottom(18).margin_start(12).margin_end(12).build();
         page.append(inner.resume.widget());
         page.append(inner.status.widget());
         page.append(inner.signal.widget());
@@ -134,20 +135,20 @@ impl MainWindow {
 
     fn add_actions(&self) {
         let inner = &self.inner;
-        let weak = Rc::downgrade(&self.inner);
-        let action = |name: &str, f: Box<dyn Fn(&Rc<Inner>)>| {
+        // A window action whose handler gets the window's state, if it still exists.
+        fn add(inner: &Rc<Inner>, name: &str, handler: impl Fn(&Rc<Inner>) + 'static) {
             let action = gio::SimpleAction::new(name, None);
-            let weak = weak.clone();
+            let weak = Rc::downgrade(inner);
             action.connect_activate(move |_, _| {
                 if let Some(inner) = weak.upgrade() {
-                    f(&inner);
+                    handler(&inner);
                 }
             });
             inner.window.add_action(&action);
-        };
-        action("preferences", Box::new(|inner| preferences::show(&inner.window, &inner.controller)));
-        action("about", Box::new(|inner| dialogs::about(&inner.window)));
-        action("copy-link", Box::new(|inner| inner.controller.send(Event::CopyLink(None))));
+        }
+        add(inner, "preferences", |inner| preferences::show(&inner.window, &inner.controller));
+        add(inner, "about", |inner| dialogs::about(&inner.window));
+        add(inner, "copy-link", |inner| inner.controller.send(Event::CopyLink(None)));
         inner.controller.app().set_accels_for_action("win.preferences", &["<Control>comma"]);
     }
 
@@ -188,15 +189,12 @@ impl MainWindow {
             let weak = Rc::downgrade(&inner);
             dialogs::keep_sharing(&inner.window, move |answer| {
                 let Some(inner) = weak.upgrade() else { return };
-                match answer {
-                    Some(keep) => {
-                        if !keep {
-                            inner.controller.send(Event::Stop);
-                        }
-                        inner.allow_close.set(true);
-                        inner.window.close();
+                if let Some(keep) = answer {
+                    if !keep {
+                        inner.controller.send(Event::Stop);
                     }
-                    None => {}
+                    inner.allow_close.set(true);
+                    inner.window.close();
                 }
             });
             glib::Propagation::Stop
