@@ -102,7 +102,7 @@ jobs:
           cd dist
           sha256sum ./*.deb > "SHA256SUMS-${{ matrix.arch }}.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-${{ matrix.arch }}
           path: dist/*
@@ -164,7 +164,7 @@ jobs:
           fi
           ./scripts/build-appimage.sh "${version_args[@]}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: appimage-${{ matrix.arch }}
           path: |
@@ -254,7 +254,7 @@ jobs:
           cd dist
           sha256sum ./*.flatpak > "SHA256SUMS-${{ matrix.arch }}.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: flatpak-${{ matrix.arch }}
           path: dist/*
@@ -264,7 +264,7 @@ jobs:
       # arch's into one multi-arch repo, published as the live Flatpak remote. Only meaningful on
       # a tag push; still uploaded on a dry run for consistency, just unsigned and never published
       # (both downstream jobs are gated on the tag condition too).
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: flatpak-ostree-${{ matrix.arch }}
           path: build/flatpak-repo
@@ -336,7 +336,7 @@ jobs:
         env:
           FLATPAK_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: flatpak-pages
           path: flatpak-repo
@@ -418,7 +418,7 @@ jobs:
         env:
           SIGNING_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: apt-repo
           path: apt-repo
