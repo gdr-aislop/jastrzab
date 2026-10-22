@@ -1,0 +1,3 @@
+# Same style as audiobooklet: long lines are fine, fields stay on one line when short.
+max_width = 160
+use_small_heuristics = "Max"

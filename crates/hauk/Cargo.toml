@@ -1,0 +1,17 @@
+[package]
+name = "hauk"
+description = "Sans-IO client side of the Hauk location-sharing wire protocol, including its end-to-end encryption"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pbkdf2.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+aes.workspace = true
+cbc.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+form_urlencoded.workspace = true

@@ -1,0 +1,10 @@
+[Flatpak Repo]
+Title=Jastrzab
+Url=__REPO_URL__
+Homepage=__HOMEPAGE_URL__
+Comment=Jastrzab — Flatpak repository
+Description=Share your live location through a Hauk server from a phone running Phosh, packaged as a Flatpak.
+Icon=__ICON_URL__
+DefaultBranch=master
+GPGKey=__GPG_KEY__
+RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo

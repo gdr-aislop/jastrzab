@@ -1,0 +1,519 @@
+name: Release debs, AppImages, and Flatpaks
+
+# Builds distribution artifacts for every release tag:
+#   - arm64: PureOS Crimson on the Librem 5 (built against Debian bookworm libraries, Crimson's
+#     base: the same libgtk-4 4.8 / libadwaita 1.2 the feature caps in app/Cargo.toml target)
+#   - amd64: a test build; Ubuntu 24.04's GTK and libadwaita are newer than the floor, so the same
+#     deb installs and runs there
+# The .deb and AppImage builds run inside a debian:bookworm container so the binaries link against
+# Crimson-era library versions, and so accidentally using a newer-than-4.8/1.2 API fails the build
+# instead of crashing on the device.
+#
+# Three artifact types per architecture:
+#   - .deb (cargo deb)
+#   - .AppImage (scripts/build-appimage.sh; bundles GTK4/libadwaita/libsoup/libsecret itself, so it
+#     runs on systems without them) + a matching .zsync file, so AppImageUpdate/Gear Lever can
+#     delta-update it against this repo's releases
+#   - .flatpak (flatpak/io.github.gdr_aislop.jastrzab.json; built against the org.gnome.Platform
+#     runtime, with every crates.io dependency built from source inside the sandbox)
+#
+# The two arch-specific Flatpak repos are also signed, merged, and published as a live remote on
+# GitHub Pages (combine-flatpak-repo + deploy-pages), and the .debs get a minimal hand-built APT
+# repo under the same site's /apt/ path (build-apt-repo). Both use one signing key
+# (secrets.FLATPAK_GPG_PRIVATE_KEY / FLATPAK_GPG_KEY_ID). Setting this up on GitHub (Pages source,
+# the github-pages environment's tag rule, the secrets) is a one-time manual job: docs/releasing.md.
+#
+# A workflow_dispatch run is a dry run: it builds the three package types, unsigned, and skips
+# signing, Pages and the release.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-deb:
+    name: Build .deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-latest
+    container:
+      image: debian:bookworm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fails fast: a tag push with a Cargo.toml nobody bumped would otherwise ship a mislabelled
+      # .deb. Skipped for workflow_dispatch dry runs.
+      - name: Verify the tag matches the workspace version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          tag_version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)"/\1/')"
+          if [ "$tag_version" != "$cargo_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME (version $tag_version) does not match the workspace version $cargo_version in Cargo.toml: bump [workspace.package].version before tagging a release."
+            exit 1
+          fi
+          echo "Tag version $tag_version matches workspace version $cargo_version."
+
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config git curl ca-certificates gettext \
+            libgtk-4-dev libadwaita-1-dev libsoup-3.0-dev libsecret-1-dev
+
+      # The workspace is owned by the runner's user, not root: `build.rs` runs `git rev-parse`.
+      - name: Mark the workspace as a safe git directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Checked out before git existed in this container, so there is no .git to read the commit
+      # from; build.rs takes it from here instead (it shows in --version and in every log).
+      - name: Record the commit for the version line
+        run: echo "JASTRZAB_GIT_HASH=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Install Rust (stable)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb
+        run: cargo deb -p jastrzab
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          cp -v target/debian/./*.deb dist/
+          cd dist
+          sha256sum ./*.deb > "SHA256SUMS-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  build-appimage:
+    name: Build AppImage (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+          - arch: x86_64
+            runner: ubuntu-latest
+    container:
+      image: debian:bookworm
+
+    steps:
+      # Same compiler/toolchain set as the deb job, plus the runtime pieces (gio modules, pixbuf
+      # loaders, icon theme) that get bundled into the AppImage, and the tools to assemble it.
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential pkg-config git curl ca-certificates file patchelf zsync gettext \
+            libgtk-4-dev libadwaita-1-dev libsoup-3.0-dev libsecret-1-dev \
+            libgdk-pixbuf-2.0-dev \
+            glib-networking dconf-gsettings-backend gsettings-desktop-schemas \
+            librsvg2-common librsvg2-bin adwaita-icon-theme
+
+      - uses: actions/checkout@v4
+
+      # Container jobs run as root over a workspace owned by the runner's host user, and that
+      # mismatch isn't visible to actions/checkout's own safe.directory handling, only to a git
+      # invocation inside a later step. build-appimage.sh calls `git rev-parse` (to resolve
+      # REPO_ROOT), so without this it fails with "detected dubious ownership".
+      - name: Mark the workspace as a safe git directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install Rust (stable)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # A tag names the version; a dry run on a branch builds under the version in Cargo.toml (a
+      # branch name, with its slashes, would not make a file name).
+      - name: Build AppImage
+        run: |
+          set -eux
+          version_args=()
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version_args=(--version "${GITHUB_REF_NAME#v}")
+          fi
+          ./scripts/build-appimage.sh "${version_args[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage-${{ matrix.arch }}
+          path: |
+            build/appimage/*.AppImage
+            build/appimage/*.zsync
+          if-no-files-found: error
+
+  build-flatpak:
+    name: Build Flatpak (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+          - arch: x86_64
+            runner: ubuntu-latest
+    # Not the debian:bookworm container the other jobs use: flatpak-builder needs a normal
+    # Ubuntu userspace (systemd/dbus for the build sandbox), not a bare container image.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runtime follows the manifest: GNOME 51 is built on freedesktop-sdk 26.08, which is the
+      # branch of the Rust extension that goes with it.
+      - name: Install flatpak-builder
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils librsvg2-common python3-venv
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub \
+            org.gnome.Platform//51 org.gnome.Sdk//51 \
+            org.freedesktop.Sdk.Extension.rust-stable//26.08
+
+      - name: Generate vendored cargo sources
+        run: ./scripts/gen-flatpak-cargo-sources.sh
+
+      # Signs the repo this job builds so it can be published as a live remote (see
+      # combine-flatpak-repo/deploy-pages below): a passphrase-less, signing-only key dedicated to
+      # CI, so no pinentry/loopback dance is needed to unlock it non-interactively. Only on a tag
+      # push; a workflow_dispatch dry run produces an unsigned local build only.
+      - name: Import the Flatpak signing key
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          if [ -z "$FLATPAK_GPG_PRIVATE_KEY" ] || [ -z "$FLATPAK_GPG_KEY_ID" ]; then
+            echo "::error::FLATPAK_GPG_PRIVATE_KEY and FLATPAK_GPG_KEY_ID must both be set (the private key as a repository secret, never a variable): see docs/releasing.md."
+            exit 1
+          fi
+          echo "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          FLATPAK_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
+
+      - name: Build Flatpak
+        run: |
+          set -eux
+          gpg_sign_args=()
+          if [ -n "${FLATPAK_GPG_KEY_ID:-}" ]; then
+            gpg_sign_args=(--gpg-sign="$FLATPAK_GPG_KEY_ID")
+          fi
+          flatpak-builder --user --force-clean --repo=build/flatpak-repo "${gpg_sign_args[@]}" \
+            build/flatpak-build flatpak/io.github.gdr_aislop.jastrzab.json
+          # flatpak-builder's own --gpg-sign signs the commits it makes as it builds; the repo's
+          # summary file (what a client actually checks first on remote-add/update) needs its own
+          # signed update, hence this separate build-update-repo call.
+          if [ -n "${FLATPAK_GPG_KEY_ID:-}" ]; then
+            flatpak build-update-repo --gpg-sign="$FLATPAK_GPG_KEY_ID" \
+              --generate-static-deltas --prune build/flatpak-repo
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version' Cargo.toml | sed -E 's/version *= *"([^"]+)"/\1/')-dev"
+          fi
+          mkdir -p dist
+          flatpak build-bundle build/flatpak-repo \
+            "dist/jastrzab-$version-${{ matrix.arch }}.flatpak" \
+            io.github.gdr_aislop.jastrzab
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ startsWith(github.ref, 'refs/tags/v') && (secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID) || '' }}
+
+      - name: Collect artifacts
+        run: |
+          cd dist
+          sha256sum ./*.flatpak > "SHA256SUMS-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+      # The raw signed OSTree repo: combine-flatpak-repo merges this arch's copy with the other
+      # arch's into one multi-arch repo, published as the live Flatpak remote. Only meaningful on
+      # a tag push; still uploaded on a dry run for consistency, just unsigned and never published
+      # (both downstream jobs are gated on the tag condition too).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-ostree-${{ matrix.arch }}
+          path: build/flatpak-repo
+          if-no-files-found: error
+
+  combine-flatpak-repo:
+    name: Combine the per-arch Flatpak repos into one
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-flatpak
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # flatpak (for `flatpak build-update-repo`) as well as gpg: ubuntu-latest ships neither.
+      - name: Install flatpak and GPG
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak gnupg
+
+      - name: Import the Flatpak signing key
+        run: echo "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flatpak-ostree-*
+          path: flatpak-repos
+
+      # OSTree/flatpak-builder have no first-class "merge two independently-built repos" command,
+      # so this does it by hand: x86_64's repo becomes the base (it already has the right
+      # config/refs layout for its own arch), then aarch64's objects and refs are copied in
+      # alongside it. build-update-repo below then regenerates the one summary file a client
+      # actually reads, covering both arches' refs.
+      - name: Merge the two arch repos
+        run: |
+          set -eux
+          mkdir -p flatpak-repo
+          cp -a flatpak-repos/flatpak-ostree-x86_64/. flatpak-repo/
+          mkdir -p flatpak-repo/objects flatpak-repo/refs/heads flatpak-repo/refs/remotes flatpak-repo/refs/tags flatpak-repo/refs/mirrors
+          cp -a flatpak-repos/flatpak-ostree-aarch64/objects/. flatpak-repo/objects/
+          cp -a flatpak-repos/flatpak-ostree-aarch64/refs/. flatpak-repo/refs/
+          flatpak build-update-repo --gpg-sign="$FLATPAK_GPG_KEY_ID" \
+            --generate-static-deltas --prune flatpak-repo
+          test -e flatpak-repo/refs/heads/app/io.github.gdr_aislop.jastrzab/x86_64/master
+          test -e flatpak-repo/refs/heads/app/io.github.gdr_aislop.jastrzab/aarch64/master
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
+
+      # Stamps the committed template with this run's real URLs and the signing key's public half
+      # (base64'd, so `flatpak remote-add` against the resulting file verifies signatures with no
+      # separate keyserver step); the repo's own Url points back at the very GitHub Pages site
+      # deploy-pages publishes below.
+      - name: Prepare the .flatpakrepo file
+        run: |
+          set -eux
+          repo_url="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          homepage_url="https://github.com/${{ github.repository }}"
+          icon_url="https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.repository.default_branch }}/app/data/icons/hicolor/scalable/apps/io.github.gdr_aislop.jastrzab.svg"
+          gpg_key_b64="$(gpg --export "$FLATPAK_GPG_KEY_ID" | base64 -w 0)"
+          sed \
+            -e "s|__REPO_URL__|$repo_url|g" \
+            -e "s|__HOMEPAGE_URL__|$homepage_url|g" \
+            -e "s|__ICON_URL__|$icon_url|g" \
+            -e "s|__GPG_KEY__|$gpg_key_b64|g" \
+            flatpak/io.github.gdr_aislop.jastrzab.flatpakrepo \
+            > flatpak-repo/io.github.gdr_aislop.jastrzab.flatpakrepo
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-pages
+          path: flatpak-repo
+          if-no-files-found: error
+
+  build-apt-repo:
+    name: Build the APT repo
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-deb
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install apt-ftparchive and GPG
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apt-utils gnupg
+
+      - name: Import the signing key
+        run: echo "$SIGNING_GPG_PRIVATE_KEY" | gpg --batch --import
+        env:
+          SIGNING_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          path: debs
+
+      # A minimal from-scratch repo (no reprepro/aptly state to maintain: it is rebuilt fresh
+      # every release, the same "stateless, republished whole" shape as the Flatpak repo above),
+      # built by hand the way a repo this small doesn't need a heavier tool for: one shared pool
+      # (real Debian repos mix every arch's .deb in the same pool dir too; the split into
+      # binary-<arch>/Packages is purely an index-level thing), one Packages listing per
+      # architecture generated from a filtered view of that pool, and a signed Release covering
+      # both. Only the current release's .debs are ever present: apt always gets the latest;
+      # older versions stay downloadable from the GitHub Release itself, just not via this live
+      # repo.
+      - name: Assemble the repo
+        run: |
+          set -eux
+          mkdir -p apt-repo/pool/main/j/jastrzab
+          cp debs/deb-arm64/*.deb debs/deb-amd64/*.deb apt-repo/pool/main/j/jastrzab/
+
+          cd apt-repo
+          for arch in arm64 amd64; do
+            mkdir -p "dists/stable/main/binary-$arch" "work/$arch"
+            cp "../debs/deb-$arch"/*.deb "work/$arch/"
+            apt-ftparchive packages "work/$arch" \
+              | sed "s#^Filename: work/$arch/#Filename: pool/main/j/jastrzab/#" \
+              > "dists/stable/main/binary-$arch/Packages"
+            gzip -9c "dists/stable/main/binary-$arch/Packages" > "dists/stable/main/binary-$arch/Packages.gz"
+          done
+          rm -rf work
+
+          # apt-ftparchive release's own output already includes a Date field and the hash
+          # listings for every regular file it finds under dists/stable, which must NOT include
+          # Release itself (a stub Release present in that directory before this scan would get
+          # hashed as if it were a distributable index, which real Debian Release files never do),
+          # hence writing its output to a separate file first and only concatenating after.
+          {
+            echo "Origin: jastrzab"
+            echo "Label: Jastrzab"
+            echo "Suite: stable"
+            echo "Codename: stable"
+            echo "Architectures: arm64 amd64"
+            echo "Components: main"
+            echo "Description: Jastrzab APT repository"
+          } > Release.header
+          ( cd dists/stable && apt-ftparchive release . ) > Release.hashes
+          cat Release.header Release.hashes > dists/stable/Release
+          rm -f Release.header Release.hashes
+
+      - name: Sign the repo
+        run: |
+          set -eux
+          cd apt-repo/dists/stable
+          gpg --default-key "$SIGNING_GPG_KEY_ID" --clearsign -o InRelease Release
+          gpg --default-key "$SIGNING_GPG_KEY_ID" --detach-sign --armor -o Release.gpg Release
+          gpg --armor --export "$SIGNING_GPG_KEY_ID" > ../../jastrzab.asc
+        env:
+          SIGNING_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apt-repo
+          path: apt-repo
+          if-no-files-found: error
+
+  deploy-pages:
+    name: Publish the Flatpak + APT repos to GitHub Pages
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [combine-flatpak-repo, build-apt-repo]
+    runs-on: ubuntu-latest
+    # This is the one job that needs Pages-deploy access; everything upstream of it keeps the
+    # default read-only permissions. Requires the repo's Settings → Pages → "Build and deployment"
+    # source to be set to "GitHub Actions", and a tag rule (v*) on the github-pages environment
+    # (docs/releasing.md); without those this job fails outright rather than silently no-op'ing.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # The Flatpak repo (OSTree objects/refs/config/summary + the .flatpakrepo file) sits at the
+      # Pages root; the APT repo sits under /apt/ alongside it. Nothing in either tree's top level
+      # is named "apt", so the two coexist with no path collisions.
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak-pages
+          path: pages
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apt-repo
+          path: pages/apt
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: pages
+
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  release:
+    name: Attach artifacts to the GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-deb, build-appimage, build-flatpak]
+    runs-on: ubuntu-latest
+    # Only this job needs write access (to attach files to the release); the build jobs keep the
+    # default read-only permissions.
+    permissions:
+      contents: write
+    steps:
+      # Explicitly excludes flatpak-ostree-*/flatpak-pages (the raw OSTree repo artifacts
+      # combine-flatpak-repo/deploy-pages consume): a bare "flatpak-*" would also match those and
+      # dump repo internals (config/objects/refs, with colliding filenames across arches) into dist.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "{deb-*,appimage-*,flatpak-x86_64,flatpak-aarch64}"
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum ./*.deb ./*.AppImage ./*.zsync ./*.flatpak > SHA256SUMS
+          rm -f SHA256SUMS-*.txt
+          cat SHA256SUMS
+
+      # A detached signature per .deb/.AppImage: same key as the Flatpak/APT repos, for anyone
+      # who downloads one of these standalone rather than through either repo. Not the .flatpak
+      # bundle: its OSTree commit is already signed via flatpak-builder --gpg-sign, so a second,
+      # unrelated signature on the bundle file itself would be redundant. Not embedded into the
+      # .deb via debsigs either: debsigs' member matching predates zstd support (the default for
+      # the .debs cargo deb produces) and silently signs the wrong data.
+      - name: Import the signing key
+        run: echo "$SIGNING_GPG_PRIVATE_KEY" | gpg --batch --import
+        env:
+          SIGNING_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+
+      - name: Sign the .deb and .AppImage files
+        run: |
+          set -eux
+          cd dist
+          for f in *.deb *.AppImage; do
+            gpg --batch --default-key "$SIGNING_GPG_KEY_ID" --detach-sign --armor -o "$f.asc" "$f"
+          done
+          gpg --armor --export "$SIGNING_GPG_KEY_ID" > jastrzab-signing-key.asc
+        env:
+          SIGNING_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.zsync
+            dist/*.flatpak
+            dist/*.asc
+            dist/SHA256SUMS

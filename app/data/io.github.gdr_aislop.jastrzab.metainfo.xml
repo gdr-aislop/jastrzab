@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.gdr_aislop.jastrzab</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Jastrzab</name>
+  <summary>Share your location with a link, using your own Hauk server</summary>
+  <description>
+    <p>
+      Jastrzab shares your live location for a time you choose. Anyone with the link sees you on a map in their
+      browser; nobody needs an app or an account. Your position goes to your own Hauk server, not to a company.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Share just your own location, or create or join a group share with a PIN</li>
+      <li>See whether the phone has a GPS fix and how good it is, before and while sharing</li>
+      <li>Optional end-to-end encryption, so the server only stores scrambled positions</li>
+      <li>Stop from the notification, even from the lock screen</li>
+      <li>Built for phones: it fits the screen, sends little data, and wakes the phone as rarely as it can</li>
+    </ul>
+    <p>Jastrzab is a client for the Hauk location sharing server and is compatible with its Android app's protocol.</p>
+  </description>
+  <launchable type="desktop-id">io.github.gdr_aislop.jastrzab.desktop</launchable>
+  <url type="homepage">https://github.com/gdr-aislop/jastrzab</url>
+  <url type="bugtracker">https://github.com/gdr-aislop/jastrzab/issues</url>
+  <categories>
+    <category>Utility</category>
+    <category>Maps</category>
+  </categories>
+  <provides>
+    <binary>jastrzab</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-info">moderate</content_attribute>
+    <content_attribute id="social-location">intense</content_attribute>
+  </content_rating>
+  <custom>
+    <value key="Purism::form_factor">mobile</value>
+  </custom>
+  <releases>
+    <release version="0.1.0" date="2026-10-22">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
