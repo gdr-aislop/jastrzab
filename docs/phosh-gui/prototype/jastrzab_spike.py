@@ -34,6 +34,65 @@ STATUS = {
 }
 
 
+# --- GPS signal model ---------------------------------------------------
+# GeoClue only reports: accuracy (metres), a free-text Description
+# ("GPS GGA"/"GPS RMC" for NMEA fixes) and a Timestamp. It exposes no fix type
+# and no satellite count, and the gnss-share socket that carries raw NMEA is
+# 0660 root:geoclue. The indicator is therefore built on accuracy, source hint
+# and age only. Thresholds below are a proposal to tune on a device.
+SIGNAL_CSS = b"""
+levelbar.signal > trough > block { min-width: 14px; margin-right: 3px; }
+levelbar.signal.q-poor > trough > block:not(.empty) { background-color: @error_color; }
+levelbar.signal.q-fair > trough > block:not(.empty) { background-color: @warning_color; }
+levelbar.signal.q-good > trough > block:not(.empty),
+levelbar.signal.q-excellent > trough > block:not(.empty) { background-color: @success_color; }
+"""
+
+# level -> (bars, title, consequence for viewers, hint)
+SIGNALS = {
+    "off": (0, "Not checking", "", "Check the signal before you start, so viewers see you in the right place."),
+    "searching": (0, "Searching for GPS…", "Nobody can see you yet.",
+                  "Go outside or stand near a window. Roofs, walls and vehicles block GPS. Keep this screen open."),
+    "poor": (1, "Poor", "Viewers will only see your rough area.",
+             "Move to open sky and wait a moment for a better fix."),
+    "fair": (2, "Fair", "Viewers may see you on the wrong street.", "A clearer view of the sky will improve this."),
+    "good": (3, "Good", "Viewers will see you at the right building.", ""),
+    "excellent": (4, "Excellent", "Viewers will see you in the right spot.", ""),
+    "lost": (0, "Signal lost", "Viewers see your last known spot.",
+             "Move to open sky. Sharing continues and resumes when a signal returns."),
+}
+
+
+def level_for(accuracy_m):
+    """Map a GeoClue accuracy (metres) to a level key.
+
+    GeoClue turns a GPS fix's HDOP into 0, 1, 3, 50, 100 or 300 m (gclue-location.c,
+    get_accuracy_from_hdop, marked FIXME "rough estimates"), so the cut-offs sit on
+    those buckets: HDOP <= 2 excellent, <= 5 good, <= 20 fair, above that poor.
+    -1 means unknown and is treated as poor.
+    """
+    if accuracy_m < 0:
+        return "poor"
+    if accuracy_m <= 1:
+        return "excellent"
+    if accuracy_m <= 5:
+        return "good"
+    if accuracy_m <= 100:
+        return "fair"
+    return "poor"
+
+
+def accuracy_text(m):
+    # Below 10 m GeoClue's number is a coarse HDOP bucket, not a measurement,
+    # so no figure is shown.
+    if m < 0:
+        return "Unknown"
+    if m < 10:
+        return "Precise"
+    return f"About {int(round(m / 5.0) * 5)} m"
+
+
+
 def label_icon_button(icon, tooltip):
     """Icon-only button with a tooltip and an explicit accessible label."""
     btn = Gtk.Button(icon_name=icon, valign=Gtk.Align.CENTER, tooltip_text=tooltip)
@@ -79,6 +138,7 @@ class MainWindow(Adw.ApplicationWindow):
         clamp.set_child(page)
 
         page.append(self._status_group())
+        page.append(self._signal_group())
         page.append(self._share_group())
         page.append(self._primary_button())
         page.append(self._pin_group())
@@ -87,6 +147,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._deadline = None
         self._on_mode_changed()
         self.set_status("inactive")
+        self.set_signal("off")
 
     # -- construction -----------------------------------------------------
 
@@ -117,6 +178,99 @@ class MainWindow(Adw.ApplicationWindow):
         lb.append(self.status_row)
         grp.add(lb)
         return grp
+
+    def _signal_group(self):
+        css = Gtk.CssProvider()
+        css.load_from_data(SIGNAL_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        grp = Adw.PreferencesGroup()
+        self.signal_row = Adw.ExpanderRow(title="GPS signal")
+        self.signal_icon = Gtk.Image(icon_name="find-location-symbolic")
+        self.signal_row.add_prefix(self.signal_icon)
+
+        self.signal_bar = Gtk.LevelBar(mode=Gtk.LevelBarMode.DISCRETE,
+                                       min_value=0, max_value=4, valign=Gtk.Align.CENTER)
+        self.signal_bar.add_css_class("signal")
+        # Decorative: the row text carries the meaning for assistive tech.
+        self.signal_bar.update_state([Gtk.AccessibleState.HIDDEN], [True])
+        self.signal_row.add_action(self.signal_bar)  # 1.2 name for "suffix"
+
+        self.check_btn = Gtk.Button(label="Check", valign=Gtk.Align.CENTER)
+        self.check_btn.connect("clicked", self._on_check_clicked)
+        self.signal_row.add_action(self.check_btn)
+
+        self.sig_acc = Adw.ActionRow(title="Accuracy")
+        self.sig_src = Adw.ActionRow(title="Source")
+        self.sig_age = Adw.ActionRow(title="Last update")
+        self.sig_view = Adw.ActionRow(title="What viewers see")
+        self.sig_hint = Adw.ActionRow(title="What to try")
+        for row in (self.sig_acc, self.sig_src, self.sig_age, self.sig_view, self.sig_hint):
+            row.set_subtitle_lines(0)      # wrap; subtitle is never ellipsized
+            row.set_title_lines(0)
+            self.signal_row.add_row(row)
+        grp.add(self.signal_row)
+        return grp
+
+    def _on_check_clicked(self, *_):
+        # Idle-only control: start or stop the pre-share signal check.
+        self.set_signal("off" if self.signal_bar.get_visible() else "searching")
+
+    def set_signal(self, key, accuracy=None, source="gps", age=0):
+        bars, title, consequence, hint = SIGNALS[key]
+        measured = key in ("poor", "fair", "good", "excellent")
+        self.signal_bar.set_value(bars)
+        for k in ("poor", "fair", "good", "excellent"):
+            self.signal_bar.remove_css_class("q-" + k)
+        self.signal_bar.add_css_class("q-" + key)
+        self.signal_bar.set_visible(key != "off")
+        sharing = self._deadline is not None
+        # Idle: "Check" starts monitoring, "Stop" ends it. While sharing the
+        # monitor is tied to the session, so there is no button.
+        self.check_btn.set_visible(not sharing)
+        self.check_btn.set_label("Check" if key == "off" else "Stop")
+        for cls in ("success", "warning", "error"):
+            self.signal_icon.remove_css_class(cls)
+        self.signal_icon.add_css_class({"excellent": "success", "good": "success",
+                                        "fair": "warning", "poor": "warning",
+                                        "searching": "warning", "lost": "error"}.get(key, "dim-label"))
+        self.signal_icon.set_from_icon_name(
+            "location-services-active-symbolic" if measured else
+            "location-services-disabled-symbolic" if key == "lost" else "find-location-symbolic")
+
+        sub = title
+        if measured and source != "gps":
+            sub = f"No GPS fix · network location, {accuracy_text(accuracy).lower()}"
+        elif measured:
+            if accuracy >= 10:
+                sub += f" · {accuracy_text(accuracy).lower()}"
+        if key == "lost":
+            sub += f" · last seen {age} s ago"
+        self.signal_row.set_subtitle(sub)
+
+        self.sig_acc.set_visible(measured)
+        self.sig_src.set_visible(measured)
+        self.sig_age.set_visible(measured or key == "lost")
+        self.sig_view.set_visible(bool(consequence))
+        self.sig_hint.set_visible(bool(hint))
+        if measured:
+            self.sig_acc.set_subtitle(accuracy_text(accuracy) if accuracy < 10
+                                      else accuracy_text(accuracy) + " (estimate)")
+            self.sig_src.set_subtitle("Satellites (GPS)" if source == "gps"
+                                      else "Wi-Fi or mobile network (approximate)")
+            self.sig_age.set_subtitle("Just now")
+        elif key == "lost":
+            self.sig_age.set_subtitle(f"{age} seconds ago")
+        # Before sharing starts this is a preview, not a fact.
+        self.sig_view.set_title("What viewers see" if sharing else "If you share now")
+        self.sig_view.set_subtitle(consequence)
+        self.sig_hint.set_subtitle(hint)
+
+        # One short, stable accessible description; it changes with the level,
+        # not every second.
+        text = f"GPS signal: {sub}"
+        self.signal_row.update_property([Gtk.AccessibleProperty.DESCRIPTION], [text])
 
     def _share_group(self):
         grp = Adw.PreferencesGroup(title="New Share")
@@ -321,7 +475,6 @@ class Preferences(Adw.PreferencesWindow):
         upd = Adw.PreferencesGroup(title="Location Updates")
         upd.add(spin_row("Update interval", "Seconds between updates", 1, 3600, 1)[0])
         upd.add(spin_row("Minimum distance", "Meters moved before sending", 0, 1000, 0)[0])
-        upd.add(spin_row("GPS fallback delay", "Seconds without GPS before using network location", 5, 600, 45)[0])
         page.add(upd)
 
         sec = Adw.PreferencesGroup(title="Privacy")
@@ -373,6 +526,21 @@ class App(Adw.Application):
             win.add_link("K3QZ-9WTA", "Your location only")
         elif STATE == "join":
             win.mode_row.set_selected(2)
+        elif STATE.startswith("sig-"):
+            kind = STATE[4:]
+            if kind in ("excellent", "good", "fair", "poor", "searching", "lost"):
+                win.start()
+            args = {"excellent": dict(accuracy=1), "good": dict(accuracy=3),
+                    "fair": dict(accuracy=50), "poor": dict(accuracy=300),
+                    "net": dict(accuracy=80, source="network"), "lost": dict(age=42)}
+            if kind == "net":
+                win.start(); win.set_signal("fair", **args["net"])
+            elif kind == "checking":
+                win.set_signal("searching")
+            elif kind != "off":
+                win.set_signal(kind, **args.get(kind, {}))
+            if os.environ.get("SIG_EXPAND"):
+                win.signal_row.set_expanded(True)
         elif STATE == "prefs":
             GLib.timeout_add(800, lambda: Preferences(win).present() or False)
         elif STATE == "confirm":

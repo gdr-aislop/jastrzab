@@ -4,7 +4,9 @@ Design for a Phosh-compatible, mobile-first GTK4 + libadwaita front end for **Ja
 
 "Hauk" below means only the upstream Android app and the Hauk server and wire protocol that Jastrzab stays compatible with.
 
-**Status.** The window-sizing findings in §2–3 were measured in a headless Phoc running in a PureOS Crimson chroot. The screen designs in §4 were built as a throwaway prototype on the same stack (Python and libadwaita 1.2.2) and screenshotted there. Nothing here has been run on a phone. §6 (Phosh integration) is research from the Phosh sources and is marked where unverified.
+Jastrzab adds one feature the original does not have: a **GPS signal indicator** that says whether the phone has a fix, how good it is, and what that means for the people watching (§4.4).
+
+**Status.** The window-sizing findings in §2–3 were measured in a headless Phoc running in a PureOS Crimson chroot. The screen designs in §4 were built as a throwaway prototype on the same stack (Python and libadwaita 1.2.2) and screenshotted there. Nothing here has been run on a phone. §6 (Phosh integration) is research from the Phosh, Phoc, squeekboard, GeoClue and xdg-desktop-portal sources at the Crimson versions, and is marked where unverified.
 
 ## 1. Platform baseline: PureOS Crimson
 
@@ -51,7 +53,7 @@ Python 3.11 with PyGObject 3.42, C, and Vala 0.56 all work as shipped. Rust is t
 
 Phoc auto-maximizes toplevels by default, so a normal app fills the 360×720 (logical) screen. That does not stop an app growing, because GTK takes the **minimum** size from the widget tree and Phoc cannot make a window smaller than the minimum the app reports.
 
-Measured in headless Phoc, 360×720 logical, Crimson's GTK 4.8.3 and libadwaita 1.2.2, window `default_size` 360×720. "Before" and "after" are before and after the content got longer:
+Measured in headless Phoc, 360×720 logical, Crimson's GTK 4.8.3 and libadwaita 1.2.2, window `default_size` 360×720. The harness has no Phosh top and bottom bars, so the screen is taller than a real phone's app area (see rule 13). "Before" and "after" are before and after the content got longer:
 
 | Case | Window before → after | |
 |---|---|---|
@@ -99,9 +101,9 @@ These are the rules from the previous Librem app, each applied to Jastrzab. Wher
 
 ### Additional rules from this research
 
-11. **Always set a default size of 360×720 and never call `set_resizable(False)`.** The non-resizable window above shrinks to its content and ignores maximize. A resizable window with a default size maximizes correctly.
+11. **Always set a default size (360×648, the portrait area Phosh leaves the app, see rule 13) and never call `set_resizable(False)`.** The non-resizable window above shrinks to its content and ignores maximize. A resizable window with a default size maximizes correctly.
 12. **Present dialogs after the parent window is on screen, not in the same tick.** In the headless Phoc harness an `AdwMessageDialog` presented in the same main-loop iteration as its parent was reported mapped but did not appear in the screenshot ([`dialog-same-tick.png`](phosh-gui/sizing/dialog-same-tick.png)). Deferring with `GLib.idle_add()` or a short timeout showed it centred ([`dialog-deferred.png`](phosh-gui/sizing/dialog-deferred.png)). Presenting from a tick callback placed it at the top-left with the main window missing. This was only seen in headless Phoc, so confirm it on a real device before relying on the exact behaviour; the safe rule is to defer.
-13. **Check landscape too:** 720×360 logical. The prototype scrolls instead of growing ([`idle-landscape.png`](phosh-gui/screens/idle-landscape.png)). The HIG's smallest size for phone apps is 360×294.
+13. **Design for the area the shell leaves, in both orientations.** Purism's design constraints (`Apps/Guides/Design/Constraints.rst` in the Librem 5 developer docs) give a 720×1440 screen at scale 2, so 360×720 points, minus a 26 px top bar and a 40 px bottom bar: **360×648 in portrait and 720×288 in landscape**. They say to "either make it fit a 360×288 pixels window so it automatically fits both or make your UI adapt to both sizes independently". Those figures are written for the Librem 5 and the bar heights have since changed, so treat 360×288 as the working target and confirm on a device. The HIG's phone minimum is 360×294, so 288 is the stricter of the two. The prototype scrolls instead of growing in landscape ([`idle-landscape.png`](phosh-gui/screens/idle-landscape.png)), though that capture is 720×360, not 720×288.
 
 ### Checklist for new UI
 
@@ -126,6 +128,7 @@ AdwApplicationWindow         default size 360x720, resizable
          └─ AdwClamp         max 480, tightening 360
             └─ GtkBox (vertical, 24 px spacing, 12 px side margins)
                ├─ status row            (boxed list, one AdwActionRow)
+               ├─ AdwPreferencesGroup (one AdwExpanderRow: "GPS signal", §4.4)
                ├─ AdwPreferencesGroup "New Share"
                ├─ Start / Stop button   (pill)
                ├─ AdwPreferencesGroup "Group PIN"      (group host only)
@@ -139,6 +142,7 @@ A single page replaces the Android layout's logo, tagline and repository link. T
 **Idle** — ![Idle](phosh-gui/screens/idle.png)
 
 - Status row: icon, **Not sharing**, subtitle "Choose how long to share, then start".
+- **GPS signal** row: "Not checking" with a **Check** button (§4.4).
 - **New Share** group:
   - *Duration*: a spin button, default 30;
   - *Unit*: a combo (Minutes, Hours, Days);
@@ -152,6 +156,7 @@ The duration range has to respect the server's limit. The Hauk backend rejects s
 **Active** — ![Active](phosh-gui/screens/active.png)
 
 - The status row shows a green pin, **Sharing location**, "Until 17:23 · server" and the remaining time as a `.numeric` `.title-4` label.
+- The **GPS signal** row shows the current level and bar, and expands for details (§4.4).
 - The New Share group is insensitive while a session runs (the original disables the same fields).
 - The primary button becomes **Stop Sharing** (`.destructive-action`, replacing `.suggested-action`).
 - Each link is a row with its ID, a subtitle ("Your location only"), and Copy and Stop icon buttons.
@@ -170,14 +175,78 @@ State is carried by an icon and text. Colour is added on top and is never the on
 |---|---|---|---|
 | Inactive | `location-services-disabled-symbolic` | none | Not sharing |
 | Connecting | `network-transmit-receive-symbolic` | none | Connecting… |
-| Waiting for first fix | `find-location-symbolic` | `.warning` | Waiting for location fix |
-| Coarse fix only | `find-location-symbolic` | `.warning` | Approximate location only |
 | Active | `location-services-active-symbolic` | `.success` | Sharing location |
 | Server unreachable | `network-offline-symbolic` | `.error` | Server unreachable |
 
 "Connecting…" replaces the Android blocking progress dialog; the Start button is disabled and the form insensitive while it runs.
 
-### 4.4 Dialogs and toasts
+This row is about the **session** (server and timer) only. The Android app's "waiting for initial GNSS fix", "waiting for high accuracy fix" and "searching for location" states describe the *position*, so they moved to the GPS signal row (§4.4).
+
+### 4.4 GPS signal indicator
+
+This is new; the original shows only a text status ("Waiting for initial GNSS fix…", "Location sharing active!"). The row tells the user whether the phone has a position fix, how good it is, and what that means for the people following them.
+
+**What the platform can tell us.** This decides the design, so it comes first.
+
+- GeoClue 2.7's `org.freedesktop.GeoClue2.Location` object has Latitude, Longitude, Accuracy (metres), Altitude, Speed, Heading, Description and Timestamp. It has **no fix type, no signal strength and no satellite count**.
+- For GPS fixes, `Accuracy` is not a measured error. `gclue_location_create_from_gga()` turns the NMEA GGA sentence's HDOP into a metre figure with `get_accuracy_from_hdop()` (`src/gclue-location.c`, GeoClue 2.7.0):
+
+  | HDOP | ≤ 1 | ≤ 2 | ≤ 5 | ≤ 10 | ≤ 20 | > 20 |
+  |---|---|---|---|---|---|---|
+  | `Accuracy` reported | 0 m | 1 m | 3 m | 50 m | 100 m | 300 m |
+
+  The code comment says "These are really just rough estimates". The `Description` of such a fix is `"GPS GGA"` (or `"GPS RMC"`). `Accuracy` is -1 when unknown.
+- GeoClue's NMEA source keeps only GGA and RMC sentences and logs "Ignoring NMEA sentence" for everything else (`src/gclue-nmea-source.c`), so satellites-in-view data never reaches D-Bus.
+- On Crimson the `gnss-share` 0.8.2 package (`0.8.2-1+pureos1~cri1`, arm64) feeds GeoClue. It installs `/etc/geoclue/conf.d/10-gnss-share.conf` (network-nmea enabled with `nmea-socket=/var/run/gnss-share.sock`, modem-gps and static-source disabled) and `/etc/gnss-share.conf` (socket `/var/run/gnss-share.sock`, group `geoclue`, driver `stm`, device `/dev/gnss0`). `gnss-share` sets the socket to mode 0660. An ordinary app therefore **cannot read the raw NMEA stream**, and satellite counts would mean adding the user to the `geoclue` group or running a privileged helper. That is the packaged default; another Crimson device may configure it differently.
+
+So the indicator uses what GeoClue does give: accuracy, a source hint and the age of the last fix. **Satellite counts are left out on purpose.** A count answers "how many satellites?", not "will my friends see me in the right place?", and a normal app cannot get it here anyway.
+
+**Layout.** One `AdwExpanderRow` titled "GPS signal", in its own group between the status row and "New Share". Collapsed it shows an icon, a one-line summary ("Good", "Fair · about 50 m") and a four-segment bar. Expanded it adds *Accuracy*, *Source*, *Last update*, *What viewers see* (or *If you share now* before sharing starts) and *What to try*. Two libadwaita 1.2 details:
+
+- `AdwExpanderRow` has `add_action()` for its end widgets; `add_suffix()` arrived later.
+- The bar is a discrete `GtkLevelBar`. libadwaita 1.2.2 gives each segment `min-width: 26px`, which makes a four-segment bar at least 110 px wide, so the app CSS sets 14 px. Its colour comes from app CSS classes using libadwaita's `@error_color`, `@warning_color` and `@success_color`, because the stock `low`/`high`/`full` offsets colour it blue for the middle levels.
+
+All the states, in order Off, Checking, Poor, Fair, then Good, Excellent, Network only, Lost:
+
+![States: off, checking, poor, fair](phosh-gui/signal/states-1.png)
+
+![States: good, excellent, network only, lost](phosh-gui/signal/states-2.png)
+
+Theme and text-size variants: [lost, dark](phosh-gui/signal/lost-dark.png), [good, high contrast](phosh-gui/signal/good-high-contrast.png), [poor, 1.5× text](phosh-gui/signal/poor-large-text.png).
+
+**Levels.** The cut-offs sit on GeoClue's own buckets, so they cannot be finer than that.
+
+| Level | Bars | Colour | GeoClue `Accuracy` | Usually | What viewers see | What to try |
+|---|---|---|---|---|---|---|
+| Excellent | 4 | green | ≤ 1 m | GPS, HDOP ≤ 2 | Viewers will see you in the right spot. | |
+| Good | 3 | green | ≤ 5 m | GPS, HDOP ≤ 5 | Viewers will see you at the right building. | |
+| Fair | 2 | amber | ≤ 100 m | GPS, HDOP 5–20; Wi-Fi | Viewers may see you on the wrong street. | A clearer view of the sky will improve this. |
+| Poor | 1 | red | > 100 m or unknown | GPS, HDOP > 20; mobile network or IP | Viewers will only see your rough area. | Move to open sky and wait a moment for a better fix. |
+| Searching | 0 | grey | no fix yet | | Nobody can see you yet. | Go outside or stand near a window. Roofs, walls and vehicles block GPS. Keep this screen open. |
+| Signal lost | 0 | red icon | no update for a while | | Viewers see your last known spot. | Move to open sky. Sharing continues and resumes when a signal returns. |
+| Off | – | – | not checking | | | Check the signal before you start, so viewers see you in the right place. |
+
+The thresholds and the viewer sentences are proposals. They are hedged because the numbers underneath are rough, and they need calibrating on a device (open sky, indoors, between buildings) before release. The mapping is a pure function (`level_for()` in the prototype).
+
+**How metres are shown.** Below 10 m GeoClue's number is a coarse HDOP bucket, not a measurement, so the row says **Precise** and shows no figure. From 10 m up it shows "About N m" (rounded to 5 m), and the expanded *Accuracy* row marks it "(estimate)". An unknown value shows "Unknown".
+
+**Source.** *Source* reads "Satellites (GPS)" when `Description` starts with "GPS", and otherwise "Wi-Fi or mobile network (approximate)". In that case the summary also changes to "No GPS fix · network location, about 80 m", so it cannot be mistaken for a GPS fix. `Description` is documented only as "a human-readable description of the location", so treat this as a hint and fall back to "Source unknown" if it is empty. The same test sets the Hauk `prv` flag the server and web viewer use to draw red (live) or orange (rough) markers: `prv=0` for GPS, `prv=1` otherwise. GeoClue chooses its sources itself, so the Android app's "fall back to network location if GNSS is unavailable for N seconds" preference has no equivalent and is removed (§4.6).
+
+**When it runs.**
+
+- **While sharing:** always, tied to the session.
+- **Before sharing:** only after the user taps **Check** (the button then reads **Stop**). It stops by itself when the window is hidden and after 5 minutes (proposed). An active GeoClue client keeps GPS powered and should light Phosh's location indicator in the top bar (§6.6, not yet confirmed on a device), so a check is not silent.
+- It never blocks **Start Sharing**. With no fix yet, sharing starts and viewers see the web viewer's "waiting for signal" page until the first location arrives, as in the original.
+
+**Keeping it calm and honest.**
+
+- Use the median of the last five accuracy values. A level improves after two consecutive fixes and degrades only after three seconds in the worse level (proposed), so the bar does not flicker between Good and Fair.
+- **Signal lost** means no `LocationUpdated` for `max(3 × update interval, 10 s)` (proposed). This is the least certain rule: GeoClue emits only when a source produces a new location, and a stationary phone on a network source may not for a long time, so non-GPS sources may need a longer window. It needs an on-device test.
+- **Do not set GeoClue's `DistanceThreshold`.** Per `org.freedesktop.GeoClue2.Client.xml` it suppresses `LocationUpdated` when the phone has not moved far enough, which a stationary user would see as "signal lost". Apply the "Minimum distance" preference in Jastrzab before posting to the server, as the Android app did for GPS. Use GeoClue's `TimeThreshold` for the update interval.
+
+**Where else it shows.** The notification title mirrors it, as the Android notification title mirrors its status (§4.8). The first time the signal is lost while sharing, show one toast, "GPS signal lost". Accessibility details are in §5.
+
+### 4.5 Dialogs and toasts
 
 `AdwMessageDialog` is the only dialog type in libadwaita 1.2.
 
@@ -198,31 +267,39 @@ Esc activates the close response. Dialogs are for decisions and errors the user 
 
 **Share sheet.** The Android system chooser has no counterpart in this design, so a link row offers **Copy** only. Whether a portal-based share action is worth adding is left to §8.
 
-### 4.5 Preferences
+### 4.6 Preferences
 
 `AdwPreferencesWindow` opened from the Main Menu (Ctrl+,). ![Preferences](phosh-gui/screens/prefs.png)
 
 | Group | Rows |
 |---|---|
 | **Server** | Server address (URL input purpose), Username, Password (`AdwPasswordEntryRow`), Preferred link ID |
-| **Location Updates** | Update interval (s), Minimum distance (m), GPS fallback delay (s): spin rows with a subtitle |
+| **Location Updates** | Update interval (s), Minimum distance (m): spin rows with a subtitle |
 | **Privacy** | End-to-End Encryption: an expander row with an enable switch containing "Encryption password" |
 | **Network** | Proxy (System Default, None, HTTP, SOCKS), proxy host and port (insensitive unless HTTP or SOCKS), Connection timeout (s), HTTPS certificate validation |
 | **Behavior** | Confirm Before Stopping (switch) |
 
 Changes apply immediately; no Save button (the HIG describes entry rows applying on Return or focus loss). Night mode and "hide logo" from the Android app are dropped: libadwaita follows the system colour scheme and there is no logo on the page. Secrets (password, encryption password) belong in the Secret Service keyring rather than a plain settings file.
 
-Only the first four groups were drawn in the prototype; Network and Behavior are in the table above but not in the screenshot.
+The screenshot shows Server, Location Updates and the top of Privacy. Network and Behavior are built in the prototype but are below the visible area.
 
-### 4.6 Menus and About
+**Removed from the Android settings:** "Fall back to network location if GNSS is unavailable for (seconds)", because GeoClue picks the sources (§4.4). "Signal lost" timing is derived from the update interval, not a preference.
+
+### 4.7 Menus and About
 
 The **Main Menu** is a `GtkMenuButton` with `open-menu-symbolic` (accessible label and tooltip "Main Menu"), containing Preferences, Keyboard Shortcuts, About Jastrzab. The HIG says primary menus do not contain Close or Quit. **About** is an `AdwAboutWindow`, which must credit the upstream Hauk project (Apache-2.0).
 
-### 4.7 Notification while sharing
+### 4.8 Notification while sharing
 
-The Android app shows an ongoing notification with **Copy link** and **Stop sharing** actions. On Phosh this would be a `GNotification` with two buttons; whether Phosh 0.34 renders those buttons on the lock screen and keeps the notification after it is tapped is the subject of §6.
+The Android app shows an ongoing notification whose title mirrors the status and which has **Copy link** and **Stop sharing** actions. On Phosh 0.34 (§6.4):
 
-### 4.8 Android → Jastrzab mapping
+- Action buttons are supported. Tapping the notification body is the default action and reopens the app.
+- The title follows the signal, for example "Sharing · GPS signal lost".
+- It is sent with the `resident` hint so it stays after being tapped (Phosh closes non-resident notifications once actioned). GLib's `GNotification` cannot set `resident`, so the app calls `org.freedesktop.Notifications.Notify` directly and re-sends with `replaces_id` to update it.
+- Phosh does not advertise a persistence capability, so the user can still dismiss it. The in-app rows stay the source of truth.
+- **Stop Sharing** is the one action worth allowing on the lock screen (§6.4), since it protects the user's privacy. Copy Link is not.
+
+### 4.9 Android → Jastrzab mapping
 
 | Android | Jastrzab |
 |---|---|
@@ -231,14 +308,16 @@ The Android app shows an ongoing notification with **Copy link** and **Stop shar
 | Duration field + unit spinner | Duration spin row + Unit combo row |
 | Mode spinner | Sharing mode combo row |
 | "Allow adoption" checkbox + "(What's this?)" link | Switch row + help button |
-| Status label (6 colours) | Status row with icon, text and style class |
+| Status label (6 colours) | Status row for the session (§4.3) and a separate GPS signal row for position quality (§4.4) |
+| "Waiting for initial GNSS fix…", "Waiting for high accuracy fix…", "Searching for location…" | GPS signal row: Searching, Fair or Poor, Signal lost |
+| "Fall back to network location after N s" setting | Removed; GeoClue chooses the source |
 | Button text `STOP SHARING [29:51]` | Stable button label; countdown in the status row |
 | Connecting `ProgressDialog` | "Connecting…" status, form disabled |
 | "Connection established" dialog | Toast with Copy Link |
 | System chooser | Copy button and toast |
 | `AlertDialog`s | `AdwMessageDialog` |
 | Settings activity | `AdwPreferencesWindow` |
-| Ongoing notification | `GNotification` (see §6) |
+| Ongoing notification | Resident `org.freedesktop.Notifications` notification (§4.8) |
 
 ## 5. Accessibility
 
@@ -249,6 +328,14 @@ Sources are the GNOME HIG pages (accessibility, keyboard, pointer & touch, writi
 - All interface elements need descriptive accessible names (HIG). Every icon-only button gets an explicit label with `update_property([Gtk.AccessibleProperty.LABEL], [text])`. In GTK 4.8 a tooltip is set as the accessible *description*, not the name, so a tooltip alone leaves the button nameless (`gtk_widget_set_tooltip_text` in 4.8.3 sets `GTK_ACCESSIBLE_PROPERTY_DESCRIPTION`). The prototype sets both.
 - `AdwActionRow` sets `LABELLED_BY` and `DESCRIBED_BY` on its `activatable-widget` automatically (1.2.2 `adw-action-row.c`), so spin buttons and switches in rows need no manual relations. (PyGObject 3.42 cannot pass the widget list to `update_relation` anyway.)
 - The primary button keeps a stable name, Start Sharing or Stop Sharing. The countdown is in a separate label so a screen reader does not re-read the button every second.
+
+**The GPS signal row (§4.4)**
+
+- The level bar is decorative and is hidden from assistive technology (`GTK_ACCESSIBLE_STATE_HIDDEN`). The meaning is in text: the title, the one-line summary ("Fair · about 50 m") and, when expanded, the detail rows.
+- The row's accessible description is set to that summary and changes only when the level changes, not every second, so a screen reader is not chattering.
+- No "updated N seconds ago" counter ticks in the collapsed row. *Last update* is a detail row and only shows an age when the signal is lost.
+- GTK 4.8 has no live-region API, so a drop in signal will not be announced. That is why the one-off "GPS signal lost" toast is paired with the notification title and the row text, which a screen-reader user can reach.
+- Colour, bar length, icon and words all carry the level. Any one of them is enough.
 
 **Not colour alone**
 
@@ -283,7 +370,60 @@ Sources are the GNOME HIG pages (accessibility, keyboard, pointer & touch, writi
 
 ## 6. Phosh integration
 
-*Pending: the research on the Phosh sources is still running and will be merged here. It covers the app-grid compatibility keys, Phoc's maximize and scale-to-fit settings, squeekboard's keyboard-resizing and layout choice, notifications, suspend and background behaviour, location access, and Purism's guidance for app developers.*
+Sources: Phosh v0.34.0, Phoc v0.33.0, squeekboard v1.22.0, GeoClue 2.7.0, xdg-desktop-portal 1.20.3, phosh-mobile-settings v0.34.0 and the Purism developer docs, read at those tags. Paths are relative to each project. **UNVERIFIED** marks things I could not confirm from code and that need a device test.
+
+### 6.1 Showing up in the app grid
+
+- Phosh filters the app grid in `src/app-grid.c`, `filter_adaptive()`. The `app-filter-mode` setting defaults to `['adaptive']`, and filtering is only active when the shell is not docked (`src/shell.c` binds `filter-adaptive` to the inverse of the docked manager).
+- An app passes if its `.desktop` file has `X-Purism-FormFactor` containing `mobile;` (case-insensitive, **the trailing semicolon matters**), or `X-KDE-FormFactor` containing `handset;`, or its ID is in the `force-adaptive` setting.
+- **Put `X-Purism-FormFactor=Workstation;Mobile;` in the desktop file.** AppStream is not consulted in 0.34.0 (no `appstream` or `metainfo` references in `src/` or `plugins/`). `docs/app-dev.md` says the key "will be phased out" for AppStream metadata (Phosh MR 950), which is not in 0.34.0, so also ship good metainfo but do not rely on it yet.
+- Other desktop-file keys from `docs/app-dev.md` and the code:
+  - `X-Geoclue-Reason`: the text shown in the location permission prompt (`src/location-manager.c`).
+  - `X-Phosh-Lockscreen-Actions`: which notification actions may show on the lock screen (§6.4).
+  - `X-Phosh-UsesFeedback=true`: for apps that use libfeedback. Jastrzab does not need it.
+
+### 6.2 Window sizing
+
+- Phoc `auto-maximize` (schema `sm.puri.phoc`, default `true`) maximizes only toplevels **without a parent** (`src/xdg-surface.c`, `want_auto_maximize`: `surface->toplevel && !surface->toplevel->parent`). Dialogs with a `transient-for` parent are not maximized, which matches the dialog captures in §4.5.
+- Phoc `scale-to-fit` (default `false`, globally and per app) scales a window larger than the screen. `view_update_scale()` clamps the scale to **0.5–1.0** and never scales up. The per-app schema is `sm.puri.phoc.application` at path `/sm/puri/phoc/application/<munged app id>/`, where the Wayland app ID has every character outside `[0-9a-zA-Z-]` replaced with `-` and is lowercased (`org.example.Jastrzab` becomes `org-example-jastrzab`). phosh-mobile-settings has a per-app switch for it (`pms/src/ms-scale-to-fit-row.c`).
+- Do not rely on it. It is a user-side rescue that shrinks the whole window, as the screenshot in §2 shows. The app has to fit natively.
+- Design target: 360×648 portrait and 720×288 landscape (rule 13, §3).
+
+### 6.3 On-screen keyboard
+
+- squeekboard is a layer-shell surface anchored to the bottom with an **exclusive zone equal to its height** (`src/panel.c`, `panel_manager_request_widget()` and `panel_manager_resize()`), so it takes space from the output's usable area rather than floating over the app. How Phoc then re-lays-out a maximized window is **UNVERIFIED**; my 360×440 capture ([`idle-osk.png`](phosh-gui/screens/idle-osk.png)) only shows that the page scrolls at that height.
+- **Consequence:** the page is already a vertical scroller, so it works with a smaller window, and the focused entry has to stay reachable. Check on a device that GTK scrolls the focused row into view when the keyboard opens.
+- Layout choice comes from the text-input content purpose (`src/data/loading.rs`, `get_directory_string()`): Email → email, Digits/Number/Phone → number, Pin → pin, Terminal → terminal, Url → url. **Everything else, including Name and Password, uses the default text layout.**
+- So: server address and the adoption link use `URL` (url layout); Group PIN uses `DIGITS` (number layout), not `PIN`, because GTK 4.8.3 documents `PIN` as "Like `GTK_INPUT_PURPOSE_DIGITS`, but characters are hidden" (`gtk/gtkenums.h`) and the group PIN is meant to be read out and shared; nicknames use `NAME` (default layout). Password rows get the default layout with no special help.
+
+### 6.4 Notifications
+
+- `GetCapabilities` returns `body`, `body-markup`, `actions`, `icon-static` (`src/notifications/notify-manager.c`). No `persistence`, `sound` or `action-icons`.
+- Actions are supported. The `default` action is the notification body and does not get a button.
+- **Lock screen.** Shown only if the `show-in-lock-screen` setting is on. Action buttons are filtered by the app's `X-Phosh-Lockscreen-Actions` desktop key (`src/lockscreen.c`, `src/notifications/notification-content.c`). The format in `docs/app-dev.md` is `X-Phosh-Lockscreen-Actions=app.stop-alarm::;app.snooze-alarm::;`. If the key is absent the code reads as "use all actions", but that is **UNVERIFIED**; set the key explicitly to the stop action only. The default action while locked is postponed until unlock.
+- **Hints.** `urgency` is honoured only when it is critical (no expiry, banner always shown), `transient` and `resident` are read as booleans. `invoke_action()` closes the notification after an action **unless it is resident**.
+- **`GNotification` cannot send `resident`.** `glib/gfdonotificationbackend.c` says "GLib doesn't currently support the `resident` hint" (the GLib source copy I read has no version tag, so it may differ from Crimson's 2.74). Send the notification yourself with `org.freedesktop.Notifications.Notify` and `{"resident": true}`, and re-send with `replaces_id` to change the title.
+
+### 6.5 Staying alive: closing the window, suspend
+
+- **Closing.** Swiping an app away in the overview only asks its toplevel to close (`src/overview.c`, `on_activity_closed()` → `phosh_toplevel_close()` → `zwlr_foreign_toplevel_handle_v1_close`). It is not a kill. A `GApplication` exits when its last window closes unless it holds itself with `g_application_hold()` (general GLib behaviour, not verified in source here). Jastrzab must hold while a share is active.
+- **Proposed behaviour.** Closing the window while sharing asks once, with an `AdwMessageDialog`: "Keep sharing?" with **Stop Sharing** and **Keep Sharing in Background** (suggested). It is a decision the user has just triggered, not an unexpected pop-up. Android keeps sharing in a foreground service after the activity closes; this is the closest equivalent. The notification (§4.8) is how the user returns or stops.
+- **Suspend.** `GTK_APPLICATION_INHIBIT_SUSPEND` goes to `org.gnome.SessionManager.Inhibit`, falling back to the `org.freedesktop.portal.Inhibit` portal (`gtk/gtkapplication-dbus.c`). gnome-session turns a suspend inhibitor into a logind `sleep` "block" inhibitor (`gsm-systemd.c`). **Whether a gnome-session is running on PureOS is UNVERIFIED.** Phosh does not implement `SessionManager.Inhibit` itself but uses logind inhibitors directly (`src/suspend-manager.c`), so the dependable route is to take a logind sleep inhibitor yourself with `org.freedesktop.login1.Manager.Inhibit("sleep", …, "block")` while sharing.
+- A sleep inhibitor does not stop the screen blanking or locking. Which component suspends the phone on idle, and whether inhibitors block a manual suspend from the power menu, are **UNVERIFIED**. Test: start a share, lock the phone, wait, and check the server keeps receiving fixes.
+- The Background portal exists in xdg-desktop-portal 1.20.3 (`RequestBackground`, `SetStatus`), but whether the GTK backend (1.14.1) implements it is **UNVERIFIED**. A native package is not killed by Phosh in the background, so it is not needed.
+
+### 6.6 Location
+
+- **Use libgeoclue directly**, not the portal. It lets the app set its own `DesktopId` (required for authorization), `RequestedAccuracyLevel` (use `EXACT`, value 8), `TimeThreshold` (the update interval) and `DistanceThreshold` (leave at 0, §4.4).
+- Phosh runs the GeoClue agent (`src/location-manager.c`): it sets the maximum accuracy from its `max-accuracy-level` setting when location services are on, or none when they are off, and shows the `X-Geoclue-Reason` text.
+- Phosh's top bar has a location indicator (`PhoshLocationInfo`, icon `location-services-active-symbolic`, bound to the manager's `active` property). What drives `active` was not traced, so confirm that a GeoClue client from Jastrzab lights it.
+- The `org.freedesktop.portal.Location` portal (version 1) works for unsandboxed apps (`xdp/src/location.c` grants `EXACT`) but adds a session and `Start` call, and whether `Start` accepts an empty parent window string is **UNVERIFIED**.
+- Sources on Crimson: the packaged `gnss-share` config (§4.4) enables the NMEA socket and disables the modem GPS and static sources. GeoClue's `[wifi]`, `[3g]` and `[cdma]` sources are on in its stock config and use the Mozilla Location Service. The `/etc/geoclue/geoclue.conf` actually installed on Crimson was **not read**.
+
+### 6.7 Guidance from Purism
+
+- Screen: 720×1440 at scale 2, so 360×720 points, minus 26 px and 40 px shell bars (rule 13, §3).
+- The Purism adaptive-UI guide in the clone I read covers GTK 3 and libhandy only. There is no libadwaita guidance there, and no AppStream form-factor requirements (**UNVERIFIED**; the only concrete requirement found is the desktop-file key in §6.1).
 
 ## 7. Verifying the design
 
@@ -303,6 +443,8 @@ An Xvfb test cannot reproduce Phosh's window behaviour. The earlier Librem app f
 - Every group header and label that shows server text has `max_width_chars == 1`.
 - Landscape (720×360) and text scaling 1.5 pass the same checks.
 - The AT-SPI tree has no unnamed buttons, switches, spin buttons or entries (not run on the prototype).
+- The GPS signal logic is pure and can be tested without a phone: feed `level_for()` and the debounce and lost-timer the GeoClue values `-1, 0, 1, 3, 50, 100, 300` and gaps in updates, and assert the level, bar count, summary text and accessible description for each of the eight states. Screenshot each state at 360×648, 720×288, 1.5× text, dark and high contrast.
+- Replay a recorded GeoClue sequence on a real device (open sky, indoors, walking between buildings) to calibrate the thresholds in §4.4.
 
 ## 8. Open decisions
 
@@ -310,5 +452,9 @@ An Xvfb test cannot reproduce Phosh's window behaviour. The earlier Librem app f
 2. **App ID** (reverse DNS) and the app icon. The prototype uses the placeholder `org.example.Jastrzab`.
 3. **Branding.** The Android app's big logo is dropped; the About window and icon need replacement art.
 4. **Keyboard Shortcuts and Help.** The HIG lists them as standard primary-menu items; for an app this size a shortcuts window may not earn its place.
-5. **Sharing the link beyond Copy.** Whether to add a portal-based share action (see §6).
+5. **Sharing the link beyond Copy.** Whether to add a portal-based share action.
 6. **Group shares and adoption** are the most complex part of the original UI. If the first release is solo-only, the Sharing mode row, Nickname, Group PIN and adoption rows can be left out without changing the rest of the layout.
+7. **GPS signal calibration.** The level thresholds, the debounce times, the "signal lost" window (especially for non-GPS sources) and the 5-minute limit on the pre-share check are proposals to tune on a device.
+8. **Satellite details.** Left out because the NMEA socket is `0660 root:geoclue`. If you want them as an optional advanced view, it needs either a `geoclue` group membership or a small privileged helper.
+9. **Closing the window while sharing.** The "Keep sharing?" dialog (§6.5) is a proposal; the alternative is to always keep sharing and rely on the notification.
+10. **Hauk `prv` flag.** Setting it from the GeoClue `Description` (§4.4) is a heuristic; the viewer only uses it for marker colour.
