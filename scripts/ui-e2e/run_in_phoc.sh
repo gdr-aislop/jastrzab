@@ -5,6 +5,8 @@
 #   phone      720x1440 @2  -> 360x720 logical  (Librem 5 portrait), auto-maximize on
 #   phone-osk  720x880  @2  -> 360x440 logical  (portrait with on-screen keyboard up)
 #   landscape  1440x720 @2  -> 720x360 logical
+#   landscape-short 1440x576 @2 -> 720x288 logical
+#   narrow     640x1280 @2  -> 320x640 logical
 #   desktop    1920x1080 @1, auto-maximize off
 # env: SHOT=<png path> takes a grim screenshot when the command prints "ready-for-shot"
 #      PHOC_KEYFILE_EXTRA=<text> extra lines appended to the GSettings keyfile
@@ -26,6 +28,8 @@ case $profile in
   phone-osk) mode=720x880;  scale=2 ;;
   phone-tall) mode=720x2600; scale=2 ;;
   landscape) mode=1440x720; scale=2 ;;
+  landscape-short) mode=1440x576; scale=2 ;;  # 720x288: what Phosh leaves in landscape (design rule 13)
+  narrow)    mode=640x1280; scale=2 ;;  # 320x640: narrower than the 360 the design targets
   desktop)   mode=1920x1080; scale=1; automax=false ;;
   *) echo "unknown profile $profile"; exit 2 ;;
 esac

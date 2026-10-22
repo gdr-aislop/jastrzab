@@ -29,7 +29,7 @@ HAUK_PASSWORD = os.environ.get("HAUK_PASSWORD", "testpw")
 HOME = "/root/e2e-home"
 APP_ID = "io.github.gdr_aislop.jastrzab"
 SHOTS = sys.argv[2] if len(sys.argv) > 2 else "/root/shots"
-BINARY = os.environ.get("JASTRZAB_BIN", "/root/target/debug/jastrzab")
+BINARY = os.environ.get("JASTRZAB_BIN") or "/root/target/debug/jastrzab"
 
 failures = []
 
@@ -109,6 +109,23 @@ def click(role, name, timeout=15, last=False):
     return True
 
 
+def click_text(text, timeout=15):
+    """Activates whatever contains the visible label `text`: the nearest ancestor with an action."""
+    def pick():
+        for label in find_all("label", text):
+            node = label
+            while node is not None:
+                if Atspi.Action.get_n_actions(node) > 0 and node.get_role_name() in ("list item", "push button", "menu item", "toggle button", "check box"):
+                    return node
+                node = node.get_parent()
+        return None
+    node = wait_for(pick, timeout, f"something labelled {text!r}")
+    if node is None:
+        return False
+    Atspi.Action.do_action(node, 0)
+    return True
+
+
 def click_in_dialog(name, timeout=15):
     """Clicks a button in a dialog window: any top-level that is not the main 'Jastrzab' frame."""
     def pick():
@@ -150,12 +167,19 @@ def fetch_points(link_id):
 
 # --- the app -----------------------------------------------------------------------------------
 
-def start_app(extra_settings="", fake="52.52,13.40,3", url=None):
+def start_app(extra_settings="", fake="52.52,13.40,3", url=None, form_mode=None):
     subprocess.run(["rm", "-rf", HOME])
     cfg = f"{HOME}/.config/{APP_ID}"
     os.makedirs(cfg, exist_ok=True)
     with open(f"{cfg}/settings.toml", "w") as f:
         f.write(f'server_url = "{url or HAUK_URL}"\ninterval_secs = 2\n{extra_settings}')
+    # The app has its own XDG_CONFIG_HOME, so desktop settings (text scale, ...) the harness was
+    # given for the compositor are written where the app's GSettings keyfile backend looks.
+    extra = os.environ.get("PHOC_KEYFILE_EXTRA", "").strip()
+    if extra:
+        os.makedirs(f"{HOME}/.config/glib-2.0/settings", exist_ok=True)
+        with open(f"{HOME}/.config/glib-2.0/settings/keyfile", "w") as f:
+            f.write(extra + "\n")
     schema = Secret.Schema.new(APP_ID, Secret.SchemaFlags.NONE, {"kind": Secret.SchemaAttributeType.STRING, "server": Secret.SchemaAttributeType.STRING})
     Secret.password_store_sync(schema, {"kind": "server-password", "server": url or HAUK_URL}, Secret.COLLECTION_SESSION, "test", HAUK_PASSWORD, None)
     # The sandbox's own HTTP proxy would otherwise be used for the local backend.
@@ -163,6 +187,8 @@ def start_app(extra_settings="", fake="52.52,13.40,3", url=None):
     env = dict(clean, HOME=HOME, XDG_CONFIG_HOME=f"{HOME}/.config", NO_AT_BRIDGE="0", GTK_A11Y="atspi", RUST_LOG="info,jastrzab=debug")
     if fake:
         env["JASTRZAB_FAKE_LOCATION"] = fake
+    if form_mode:
+        env["JASTRZAB_FORM_MODE"] = form_mode
     proc = subprocess.Popen([BINARY], env=env, stdout=open("/root/e2e-app.log", "w"), stderr=subprocess.STDOUT)
     wait_for(lambda: app_node() is not None and find_all("push button", "Start Sharing"), 20, "the main window")
     return proc
@@ -202,6 +228,7 @@ def solo():
     wait_for(lambda: has_label("Sharing location"), 20, "Sharing location")
     check(has_label("Sharing location"), "the share started against the real backend")
     check(not any(l == "Not checking" for l in labels()), "the signal row is never 'Not checking' while sharing")
+    time.sleep(6)  # let the "Sharing started" toast go before the screenshot
     shot("e2e-3-sharing")
 
     items = wait_for(lambda: [n for n in find_all("list item") if n.get_name() and "-" in n.get_name() and len(n.get_name()) == 9], 10, "a link row")
@@ -215,6 +242,8 @@ def solo():
     check(isinstance(later, list) and later and later[-1][2] > points[-1][2], "later points keep arriving")
 
     click("push button", "Stop Sharing")
+    time.sleep(1)
+    shot("e2e-confirm-stop")
     click_in_dialog("Stop Sharing")  # the confirmation dialog's response
     wait_for(lambda: has_label("Not sharing"), 15, "Not sharing")
     check(has_label("Not sharing"), "stopping returns to idle")
@@ -226,7 +255,9 @@ def solo():
     # The log is buffered for up to a minute and flushed on a clean exit, so it is read afterwards.
     log = log_text()
     check("starting up" in log, "the log has the start-up line")
-    check("52.52" not in log and HAUK_PASSWORD not in log, "no coordinates or password in the log")
+    import re
+    # (A timestamp such as 18:55:52.527098 is not a coordinate: it follows a colon.)
+    check(re.search(r"(?<![\d:])52\.52\d*", log) is None and HAUK_PASSWORD not in log, "no coordinates or password in the log")
     check(link_id is not None and link_id not in log, "the share ID is scrubbed from the log")
     check("<id>" in log or "api/create.php" in log, "requests were logged (scrubbed)")
 
@@ -274,6 +305,12 @@ class Hostile:
                     body = f"OK\n{'S' * 300}\nhttps://hauk.example/?{'X' * 200}\n{long_id}\n"
                 elif path == "post.php":
                     body = outer.post_body or "OK\nhttps://hauk.example/?%s\n" + ",".join(f"{long_id}{n}" for n in range(25)) + "\n"
+                elif path == "new-link.php":
+                    self.send_response(302)
+                    self.send_header("Location", "https://elsewhere.example/api/new-link.php")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 else:
                     body = "OK\n"
                 data = body.encode()
@@ -297,6 +334,10 @@ def worstcase():
     wait_for(lambda: frame_size() and frame_size()[0] > 0, 10, "the window size")
     idle = frame_size()
     check(idle[0] > 0, f"window size when idle: {idle}")
+    expect = os.environ.get("EXPECT_SIZE")
+    if expect:
+        want = tuple(int(v) for v in expect.split("x"))
+        check(idle == want, f"the window fits the screen ({idle}), so its minimum size is no larger than {want}")
 
     click("push button", "Start Sharing")
     wait_for(lambda: has_label("Sharing location"), 20, "Sharing location")
@@ -305,6 +346,13 @@ def worstcase():
     sharing = frame_size()
     check(sharing == idle, f"25 links with 80-character IDs do not change the window size ({idle} -> {sharing})")
     shot("e2e-worst-links")
+
+    click("push button", "New Link")
+    dialog_text = wait_for(lambda: next(iter(l for l in labels() if "Received HTTP 302" in l), None), 15, "a dialog for the redirect")
+    check(dialog_text is not None, f"a redirect is reported, not followed ({dialog_text!r})")
+    click_in_dialog("Close")
+    time.sleep(1)
+    check(frame_size() == idle, "the dialog does not change the window size either")
 
     hostile.post_body = "Error: " + "the server is very unhappy " * 40 + "\n"
     wait_for(lambda: has_label("Server reported a problem"), 20, "the server message in the status row")
@@ -429,10 +477,26 @@ def crash():
 
 
 def group():
-    proc = start_app()
-    click("combo box", "Sharing mode")
-    time.sleep(0.5)
-    shot("e2e-group-menu")
+    """Host a group share through the UI: nickname, PIN, host label, adoption dialog."""
+    # (A combo row cannot be operated through AT-SPI, and a headless Phoc has no keyboard focus
+    # for key synthesis, so debug builds can preselect the mode from the environment.)
+    proc = start_app(extra_settings='nickname = "Ann"\n', form_mode="create-group")
+    check(any(n.get_name() == "Nickname" for n in find_all("text")), "the nickname field is shown for a group")
+    shot("e2e-group-form")
+    click("push button", "Start Sharing")
+    wait_for(lambda: has_label("Sharing location"), 20, "Sharing location")
+    pin = wait_for(lambda: next(iter(l for l in labels() if len(l) == 6 and l.isdigit()), None), 10, "the group PIN")
+    check(pin is not None, f"the group PIN is shown ({pin})")
+    check(has_label("Group share (host)"), "the link row says host")
+    check(any(l == "Add Existing Share…" for l in labels()), "the adoption row is offered")
+    link = next(iter(n.get_name() for n in find_all("list item") if n.get_name() and len(n.get_name()) == 9 and "-" in n.get_name()), None)
+    points = wait_for(lambda: (p := fetch_points(link)) is not None and isinstance(p, dict) and p, 20, "a group point")
+    check(bool(points) and "Ann" in points, f"the server shows the nickname: {list(points) if points else points}")
+    time.sleep(6)
+    shot("e2e-group-active")
+    click("push button", "Stop Sharing")
+    click_in_dialog("Stop Sharing")
+    wait_for(lambda: has_label("Not sharing"), 15, "Not sharing")
     end_app(proc)
 
 

@@ -54,6 +54,15 @@ impl ShareForm {
         let pin = adw::EntryRow::builder().title(tr("Group PIN")).input_purpose(gtk::InputPurpose::Digits).build();
         group.add(&pin);
 
+        // Development aid for the headless UI checks, which cannot operate a combo row: debug
+        // builds only, like the scripted location source.
+        #[cfg(debug_assertions)]
+        if let Ok(name) = std::env::var("JASTRZAB_FORM_MODE")
+            && let Some(index) = ["alone", "create-group", "join-group"].iter().position(|m| *m == name)
+        {
+            mode.set_selected(index as u32);
+        }
+
         let form = Self { group, duration, unit, mode, adopt_row, adopt, nickname, pin };
         form.update_mode_rows();
         let rows = (form.adopt_row.clone(), form.nickname.clone(), form.pin.clone());

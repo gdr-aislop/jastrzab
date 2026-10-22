@@ -6,7 +6,7 @@ Design for a Phosh-compatible, mobile-first GTK4 + libadwaita front end for **Ja
 
 Jastrzab adds one feature the original does not have: a **GPS signal indicator** that says whether the phone has a fix, how good it is, and what that means for the people watching (§4.4).
 
-**Status.** The window-sizing findings in §2–3 were measured in a headless Phoc running in a PureOS Crimson chroot. The screen designs in §4 were built as a throwaway prototype on the same stack (Python and libadwaita 1.2.2) and screenshotted there. Nothing here has been run on a phone. §6 (Phosh integration) is research from the Phosh, Phoc, squeekboard, GeoClue and xdg-desktop-portal sources at the Crimson versions, and is marked where unverified.
+**Status.** The window-sizing findings in §2–3 were measured in a headless Phoc running in a PureOS Crimson chroot. The screen designs in §4 were first built as a throwaway Python prototype on the same stack and screenshotted there. **The design is now implemented in Rust** (see the repository's [README](../README.md)), and the implementation was run in the same headless Phoc and checked through its accessibility tree, against a real Hauk backend and the real GeoClue 2.7.0; §7 lists what was measured. Nothing has been run on a phone. §6 (Phosh integration) is research from the Phosh, Phoc, squeekboard, GeoClue and xdg-desktop-portal sources at the Crimson versions, and is marked where unverified.
 
 ## 1. Platform baseline: PureOS Crimson
 
@@ -25,7 +25,7 @@ Versions come from the `Packages` indexes at `repo.pureos.net/pureos/dists/crims
 | PyGObject (`python3-gi`) | 3.42.2 | |
 | Vala | 0.56.3 | |
 | blueprint-compiler | 0.6.0 | |
-| rustc / cargo | 1.63 / 0.66 | Too old for current gtk-rs; Rust would need `rustup`. |
+| rustc / cargo | 1.63 / 0.66 | Too old for current gtk-rs. The implementation uses rustup stable (needs 1.92+). `crimson-security` also carries `rustc-web` 1.96, which would do, but the release workflow uses rustup like the author's other app. |
 | adwaita-icon-theme | 43 | |
 
 ### What libadwaita 1.2 does not have
@@ -47,7 +47,7 @@ Style classes available in 1.2: `.boxed-list`, `.pill`, `.suggested-action`, `.d
 
 ### Implementation language
 
-Python 3.11 with PyGObject 3.42, C, and Vala 0.56 all work as shipped. Rust is the odd one out because of rustc 1.63. Python is quickest for the prototype; the choice is left open in §8.
+**Rust**, with gtk4-rs 0.11 and libadwaita-rs 0.9 capped at Crimson by the crate features `gnome_43` (GTK 4.8) and `v1_2` (libadwaita 1.2), so the build fails if newer API is used. The two toolkit-free layers (`hauk`, `jastrzab-core`) are plain Rust and are tested without a display. Python 3.11 with PyGObject 3.42, C and Vala 0.56 would also have worked as shipped.
 
 ## 2. How a Phosh window gets its size
 
@@ -265,14 +265,14 @@ Which signal states can appear depends on the session:
 | Server or network error | Connection Error (or the server's heading) | Close. The message label wraps with `WORD_CHAR`; the reply can be long. |
 | Old server lacks group or E2E support | Server Is Out of Date | Close |
 
-Esc activates the close response. Dialogs are for decisions and errors the user needs to act on. Everything else is a toast (`AdwToastOverlay`):
+Esc activates the close response. Response labels have **no mnemonic underscores**: in libadwaita 1.2.2 a response button's accessible name becomes `_Cancel Cancel` (the raw label, then the content), which a screen reader would read literally, and mnemonics mean nothing on a touch screen. Dialogs are for decisions and errors the user needs to act on. Everything else is a toast (`AdwToastOverlay`):
 
 - "Sharing started" with a **Copy Link** button (this replaces the Android "Connection established / Share / OK" dialog);
 - "Link copied", "PIN copied", "Link created".
 
-**Resuming an unfinished session.** The original asks in a dialog at launch. The HIG says never to pop up a dialog unexpectedly, so the design shows a row at the top of the page instead: "Resume unfinished share?" with Resume and Dismiss buttons. This was not prototyped.
+**Resuming an unfinished session.** The original asks in a dialog at launch. The HIG says never to pop up a dialog unexpectedly, so the design shows a row at the top of the page instead: "Resume unfinished share?" with Resume and Dismiss buttons. It is the first row of the page in the implementation.
 
-**Share sheet.** The Android system chooser has no counterpart in this design, so a link row offers **Copy** only. Whether a portal-based share action is worth adding is left to §8.
+**Share sheet.** The Android system chooser has no counterpart in this design, so a link row offers **Copy** only. A portal-based share action was left out (§8).
 
 ### 4.6 Preferences
 
@@ -454,15 +454,52 @@ An Xvfb test cannot reproduce Phosh's window behaviour. The earlier Librem app f
 - The GPS signal logic is pure and can be tested without a phone: feed `level_for()` and the debounce and lost-timer the GeoClue values `-1, 0, 1, 3, 50, 100, 300` and gaps in updates, and assert the level, bar count, summary text and accessible description for each of the eight states. Screenshot each state at 360×648, 720×288, 1.5× text, dark and high contrast.
 - Replay a recorded GeoClue sequence on a real device (open sky, indoors, walking between buildings) to calibrate the thresholds in §4.4.
 
-## 8. Open decisions
+### Measured on the implementation
 
-1. **Language.** Python (fastest, shipped in Crimson), C, or Vala. Rust only with `rustup`.
-2. **App ID** (reverse DNS) and the app icon. The prototype uses the placeholder `org.example.Jastrzab`.
-3. **Branding.** The Android app's big logo is dropped; the About window and icon need replacement art.
-4. **Keyboard Shortcuts and Help.** The HIG lists them as standard primary-menu items; for an app this size a shortcuts window may not earn its place.
-5. **Sharing the link beyond Copy.** Whether to add a portal-based share action.
-6. **Group shares and adoption** are the most complex part of the original UI. If the first release is solo-only, the Sharing mode row, Nickname, Group PIN and adoption rows can be left out without changing the rest of the layout.
-7. **GPS signal calibration.** The level thresholds, the debounce times, the "signal lost" window (especially for non-GPS sources) and the 5-minute limit on the pre-share check are proposals to tune on a device.
-8. **Satellite details.** Left out because the NMEA socket is `0660 root:geoclue`. If you want them as an optional advanced view, it needs either a `geoclue` group membership or a small privileged helper.
-9. **Closing the window while sharing.** The "Keep sharing?" dialog (§6.5) is a proposal; the alternative is to always keep sharing and rely on the notification.
-10. **Hauk `prv` flag.** Setting it from the GeoClue `Description` (§4.4) is a heuristic; the viewer only uses it for marker colour.
+The Rust app (`app/`) was built against Crimson's own libraries (GTK 4.8.3, libadwaita 1.2.2, libsoup 3.2.3, libsecret 0.20.5, GLib 2.74.6) and run in the headless Phoc at 360×720 logical (720×1440 at scale 2) by the scripts in [`scripts/ui-e2e/`](../scripts/ui-e2e/README.md), which operate it through AT-SPI. The backend is a real Hauk 1.6.3 (PHP and Redis), the location source the real GeoClue 2.7.0 from Crimson, the keyring gnome-keyring; the notification server and logind are fakes that record what the app asks of them. Screenshots of the real app: [idle](phosh-gui/app/idle.png), [checking the signal](phosh-gui/app/checking.png), [sharing](phosh-gui/app/sharing.png), [hosting a group](phosh-gui/app/group.png), [the stop confirmation](phosh-gui/app/confirm-stop.png), [Preferences](phosh-gui/app/preferences.png), [GeoClue's network-source fix](phosh-gui/app/geoclue-check.png), [a 1000-character server message](phosh-gui/app/hostile-server.png), [25 long links](phosh-gui/app/hostile-links.png) and [the same at 1.5× text](phosh-gui/app/large-text.png).
+
+| Check | Result |
+|---|---|
+| Window size with a hostile server (25 links with 80-character IDs, then a 1000-character server message) | Unchanged at 360×720. The status row shows at most 160 characters of a server message. |
+| Smallest screen the window fits | It fits 720×288 (landscape after Phosh's bars, design rule 13) and 320×640, so its minimum size is at most 720×288 and at most 320×640. Also unchanged at 720×360 and with text at 1.5×. |
+| Accessibility tree of the idle window | No unnamed interactive control, after fixing one: the GPS signal expander row had a description but no name. |
+| Accessibility of Preferences | Every control has a name. |
+| A solo share against the real backend | Check shows *Good* for a 3 m fix; sharing starts; the server receives `lat/lon/prv=0/acc/spd` and the fix's own timestamp, and later points keep arriving; Stop through the confirmation dialog ends it and the share is gone on the server. The GPS row never reads *Not checking* while sharing. |
+| A group share | The group PIN is shown, the link row says *Group share (host)*, and the nickname reaches the server. |
+| The real GeoClue | The static source's fix arrives (shown as "No GPS fix · network location, precise", because its `Description` is not `GPS…`) and is posted with `prv=1`. GeoClue holds every `GetClient` until the user's location agent has registered, so on a phone Phosh must be up; the test stands in GeoClue's demo agent. |
+| Notification | Sent resident, with `default`, `copy-link` and `stop-sharing` actions and the desktop entry; replaced (same ID) when the title changes, not re-sent on every fix; its Stop action ends the share; withdrawn on stop. |
+| Suspend inhibitor | A logind `sleep`/`block` lock is held while sharing and released when it ends. |
+| Keyring | The password stored through libsecret reads back (Preferences shows it). |
+| Log | One file per day named `jastrzab.YYYY-MM-DD`; nothing on disk for the first minute, flushed by the 60 s timer and on a clean exit; line format as in the README; the share ID, server address and group PIN are scrubbed and no coordinate or password appears. |
+| Crash | `kill -SEGV` writes a Breakpad minidump (`MDMP`), the crash server logs its path into the same log file, and the lines buffered before the crash are on disk. |
+
+Findings that changed the design on the way:
+
+* AT-SPI shows `AdwMessageDialog` buttons named `_Cancel Cancel`; the response labels now have no mnemonic underscore (§4.5).
+* `AdwExpanderRow` is a list item of its own and has to be given an accessible name.
+* An AT-SPI client cannot activate libadwaita combo rows or activatable list rows, and a headless Phoc has no keyboard focus for key synthesis; the harness preselects the sharing mode through a debug-only environment variable.
+* GeoClue's agent requirement, above.
+
+**Still for a device:** the Phosh location prompt and whether the top-bar indicator lights while a client is active; suspend and the inhibitor with the screen locked; the lock-screen *Stop* action; the on-screen keyboard re-layout; aarch64 minidumps (`minidump-writer` marks aarch64 "untested"); and the thresholds, debounce and lost-signal windows in §4.4.
+
+## 8. Decisions
+
+Settled by the implementation:
+
+1. **Language: Rust**, with the toolkit-free logic in two crates.
+2. **App ID `io.github.gdr_aislop.jastrzab`** (the underscore because `flatpak-builder` rejects a hyphen in a non-final segment), binary and log prefix `jastrzab`. The app icon is a placeholder.
+3. **Branding:** the Android logo is dropped; the About window credits Hauk (Apache-2.0).
+4. **No Keyboard Shortcuts window.** The only shortcut is Ctrl+, for Preferences.
+5. **Sharing the link: Copy only** (toast, link rows, notification action).
+6. **Group shares and adoption are in the first release.**
+7. **Closing the window while sharing asks once** ("Keep Sharing?", with *Keep Sharing*, *Stop Sharing* and *Cancel*); the share keeps running in the background and the notification brings the user back.
+8. **`prv` comes from the GeoClue `Description`** (`GPS…` is fine, anything else coarse).
+9. **Encryption is never silently dropped:** if the server is older than 1.5 the just-created session is ended and nothing is shared (the Android app carries on unencrypted). It is also refused for group shares.
+10. **The default update interval is 5 s** (Hauk's is 1 s), because every post wakes the radio. A post carries the fix's own timestamp.
+
+Still open:
+
+* **GPS signal calibration.** The level thresholds, the debounce (2 fixes up, 3 s down), the lost-signal window (`max(3 × interval, 10 s)` for satellite fixes, `max(12 × interval, 120 s)` for network ones) and the 5-minute limit on *Check* are proposals to tune on a device.
+* **Satellite details.** Left out because the NMEA socket is `0660 root:geoclue`. They would need `geoclue` group membership or a small privileged helper.
+* **Final icon and screenshots for the metainfo.**
+* **AppImage, Flatpak and a signed APT repository** (the author's other app has them); the release workflow builds and attaches `.deb`s only.

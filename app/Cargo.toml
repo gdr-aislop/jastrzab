@@ -30,3 +30,31 @@ gettext-rs.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+# Debian packaging for PureOS Crimson (Librem 5) and Ubuntu 24.04, built by
+# .github/workflows/release.yml via `cargo deb`, as for the author's other Phosh app. Depends is
+# written against bookworm (Crimson's base) package names.
+[package.metadata.deb]
+maintainer = "gdr-aislop <gdr-aislop@users.noreply.github.com>"
+copyright = "GPL-3.0-or-later"
+section = "utils"
+priority = "optional"
+extended-description = """\
+Jastrzab shares your live location, for a time you choose, with anyone who has \
+the link: they see you on a map in their browser and need no app. It talks to \
+your own Hauk server, so your position never goes to a company. Designed for \
+mobile Linux (Phosh on the Librem 5, also usable on desktop).
+
+See whether the phone has a GPS fix before you start, and how good it is while \
+you share. Optional end-to-end encryption; stop from the notification."""
+depends = """\
+libgtk-4-1 (>= 4.8), libadwaita-1-0 (>= 1.2), libsoup-3.0-0, libsecret-1-0, \
+glib-networking, geoclue-2.0, gnome-keyring"""
+assets = [
+    ["target/release/jastrzab", "usr/bin/", "755"],
+    ["data/io.github.gdr_aislop.jastrzab.desktop", "usr/share/applications/", "644"],
+    ["data/io.github.gdr_aislop.jastrzab.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["data/icons/hicolor/scalable/apps/io.github.gdr_aislop.jastrzab.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["data/icons/hicolor/symbolic/apps/io.github.gdr_aislop.jastrzab-symbolic.svg", "usr/share/icons/hicolor/symbolic/apps/", "644"],
+    ["../LICENSE", "usr/share/doc/jastrzab/", "644"],
+]

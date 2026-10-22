@@ -1,0 +1,18 @@
+[Desktop Entry]
+Name=Jastrzab
+GenericName=Location Sharing
+Comment=Share your location with a link, using your own Hauk server
+Exec=jastrzab
+Icon=io.github.gdr_aislop.jastrzab
+Terminal=false
+Type=Application
+Categories=GNOME;GTK;Utility;Maps;
+Keywords=location;gps;share;tracking;hauk;
+StartupNotify=true
+# Phosh shows an app in its grid only if this key contains "mobile;" (the trailing semicolon
+# matters; Phosh 0.34 does not read AppStream for this).
+X-Purism-FormFactor=Workstation;Mobile;
+# Shown by the location permission prompt.
+X-Geoclue-Reason=Jastrzab shares your location with the people you give its link to, and only while a share is running.
+# On the lock screen only Stop may be tapped on the notification; Copy Link may not.
+X-Phosh-Lockscreen-Actions=stop-sharing;

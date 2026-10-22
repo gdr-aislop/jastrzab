@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    # The GTK stack is capped at what PureOS Crimson ships (GTK 4.8, libadwaita 1.2): a bump that
+    # needs newer system libraries fails the bookworm build and is rejected there.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

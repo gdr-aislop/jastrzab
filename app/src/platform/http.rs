@@ -72,6 +72,10 @@ fn build_session(settings: &Settings) -> soup::Session {
 
 async fn perform(session: &soup::Session, url: &str, body: String, tls: TlsPolicy) -> Result<Reply, String> {
     let message = soup::Message::new("POST", url).map_err(|_| "The server address is not a valid web address.".to_string())?;
+    // Never follow a redirect: it would turn the POST into a GET (and the PHP backend answers
+    // 405), and the password in the body must not be sent anywhere the user did not type in. The
+    // user sees "Received HTTP 301" and fixes the address (usually http:// that should be https://).
+    message.set_flags(soup::MessageFlags::NO_REDIRECT);
     message.set_request_body_from_bytes(Some("application/x-www-form-urlencoded"), Some(&glib::Bytes::from_owned(body.into_bytes())));
     if tls != TlsPolicy::Always && is_onion(url) {
         message.connect_accept_certificate(move |_, _, errors| accept_onion_certificate(tls, errors));
