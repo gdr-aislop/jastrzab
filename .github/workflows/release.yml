@@ -508,7 +508,7 @@ jobs:
         env:
           SIGNING_GPG_KEY_ID: ${{ secrets.FLATPAK_GPG_KEY_ID || vars.FLATPAK_GPG_KEY_ID }}
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.deb
