@@ -249,7 +249,7 @@ fn open_log_folder(window: &adw::PreferencesWindow) {
     crate::crash_reporting::flush_logs();
     let dir = paths.logs_dir();
     let uri = gio::File::for_path(&dir).uri();
-    if let Err(err) = gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>) {
+    if let Err(err) = gio::AppInfo::launch_default_for_uri(&uri, Some(&crate::host_env::launch_context())) {
         tracing::warn!(%err, "couldn't open the log folder");
         window.add_toast(adw::Toast::new(&tr_args("Logs are in {path}", &[("path", &dir.display().to_string())])));
     }

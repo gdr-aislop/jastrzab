@@ -37,15 +37,73 @@ rather than a satellite count (see [the design](docs/phosh-gui-design.md), §4.4
 
 ## Installing
 
-Download the `.deb` for your architecture from the
-[releases](https://github.com/gdr-aislop/jastrzab/releases) and install it:
+Every release has a `.deb`, an AppImage and a Flatpak, for **arm64** (the Librem 5) and **amd64**.
+The APT and Flatpak repositories below are signed and contain the latest release; all three
+packages are also on the [releases page](https://github.com/gdr-aislop/jastrzab/releases). Once
+installed, open Jastrzab, choose *Preferences* from the menu, and enter your server's address and
+password.
+
+### APT (PureOS Crimson, Debian 12, Ubuntu 24.04)
 
 ```sh
-sudo apt install ./jastrzab_*_arm64.deb      # or _amd64.deb
+sudo curl -fsSLo /usr/share/keyrings/jastrzab.asc https://gdr-aislop.github.io/jastrzab/apt/jastrzab.asc
+echo "deb [signed-by=/usr/share/keyrings/jastrzab.asc] https://gdr-aislop.github.io/jastrzab/apt stable main" \
+    | sudo tee /etc/apt/sources.list.d/jastrzab.list
+sudo apt update
+sudo apt install jastrzab
 ```
 
-Then open Jastrzab, choose *Preferences* from the menu, and enter your server's address and
-password. To build from source, see [BUILD.md](BUILD.md).
+`sudo apt upgrade` then keeps it current. Without the repository, install the downloaded file
+instead: `sudo apt install ./jastrzab_*_arm64.deb` (or `_amd64.deb`).
+
+### Flatpak
+
+```sh
+flatpak remote-add --user --if-not-exists jastrzab https://gdr-aislop.github.io/jastrzab/io.github.gdr_aislop.jastrzab.flatpakrepo
+flatpak install --user jastrzab io.github.gdr_aislop.jastrzab
+flatpak run io.github.gdr_aislop.jastrzab
+```
+
+The remote file also names Flathub as the source of the GNOME runtime, so this works on a phone
+that has not added Flathub. What differs inside the sandbox:
+
+* **No crash dumps.** The crash handler needs `ptrace`, which the sandbox's seccomp filter blocks,
+  so a crash leaves a log but no minidump.
+* **Logs** are in `~/.var/app/io.github.gdr_aislop.jastrzab/.local/state/io.github.gdr_aislop.jastrzab/logs/`.
+  *Open Log Folder* in Preferences may not open a file manager from the sandbox; it then shows
+  that path.
+* **The password** is kept through the Secret portal, which needs a keyring behind it (Phosh
+  has gnome-keyring).
+* The app talks to GeoClue and logind on the system bus directly (the manifest's
+  `--system-talk-name` entries).
+
+### AppImage
+
+Download `jastrzab-<version>-aarch64.AppImage` (or `x86_64`), then:
+
+```sh
+chmod +x jastrzab-*.AppImage
+./jastrzab-*.AppImage
+```
+
+It bundles GTK, libadwaita, libsoup and libsecret, so it needs nothing installed. **Install it
+into the application menu** (Gear Lever and AppImageLauncher do) rather than only running the
+file: GeoClue decides whether an app may see the location from its `.desktop` file, so without
+one it can refuse. The `.zsync` file next to it lets AppImageUpdate and Gear Lever update it.
+
+### Checking a download
+
+Each `.deb` and `.AppImage` has a detached signature (`.asc`) made with the release key, which is
+also `jastrzab-signing-key.asc` on the release and `jastrzab.asc` in the APT repository:
+
+```sh
+gpg --import jastrzab-signing-key.asc
+gpg --verify jastrzab_0.1.0-1_arm64.deb.asc jastrzab_0.1.0-1_arm64.deb
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+The key's fingerprint is in [docs/releasing.md](docs/releasing.md). To build from source, see
+[BUILD.md](BUILD.md).
 
 ## Using it
 

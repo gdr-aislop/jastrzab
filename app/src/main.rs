@@ -1,6 +1,7 @@
 mod application;
 mod controller;
 mod crash_reporting;
+mod host_env;
 mod i18n;
 mod log_privacy;
 mod platform;
@@ -25,6 +26,10 @@ fn main() -> glib::ExitCode {
         println!("{}", application::version_line());
         return glib::ExitCode::SUCCESS;
     }
+
+    // A packaged launcher can run this binary under another name (an AppImage's is
+    // `AppRun.wrapped`); GTK and AT-SPI take the program name from argv[0], so pin it.
+    glib::set_prgname(Some("jastrzab"));
 
     // Resolved here, synchronously: logging and the panic hook below need `logs_dir()` before
     // anything else runs, so they also catch failures during the rest of start-up.

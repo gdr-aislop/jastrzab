@@ -57,6 +57,37 @@ and GeoClue cannot ask for location permission on its behalf (it needs `<app id>
 It works but is slow and needs memory. If the build is killed for lack of memory, use fewer jobs
 (`cargo build --release --locked -p jastrzab -j 2`) and/or add swap.
 
+## AppImage
+
+```sh
+scripts/build-appimage-in-docker.sh              # in a debian:bookworm container (docker or podman)
+scripts/build-appimage.sh                        # or directly, on a bookworm-like host with the build packages
+```
+
+Output: `build/appimage/jastrzab-<version>-<arch>.AppImage` and its `.zsync`, for the architecture of
+the machine (`--arch x86_64|aarch64`; there is no cross-building: CI builds each natively). It needs
+the packages the Dockerfile (`scripts/appimage-builder-bookworm.Dockerfile`) installs, plus
+network access for the pinned `linuxdeploy` and the AppImage runtime. Building on bookworm is what
+keeps the glibc requirement at 2.35 or lower, so the AppImage runs on Ubuntu 22.04 and newer.
+
+To try it without FUSE: `APPIMAGE_EXTRACT_AND_RUN=1 ./jastrzab-*.AppImage`.
+
+## Flatpak
+
+```sh
+sudo apt install flatpak flatpak-builder
+flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.gnome.Platform//51 org.gnome.Sdk//51 org.freedesktop.Sdk.Extension.rust-stable//26.08
+scripts/gen-flatpak-cargo-sources.sh             # flatpak/cargo-sources.json from Cargo.lock (not committed)
+flatpak-builder --user --install --force-clean build/flatpak-build flatpak/io.github.gdr_aislop.jastrzab.json
+flatpak run io.github.gdr_aislop.jastrzab
+```
+
+The sandbox has no network, so every crate is vendored from `cargo-sources.json`; regenerate it
+whenever `Cargo.lock` changes. The runtime and the Rust extension branch go together: GNOME 51 is
+built on freedesktop-sdk 26.08. Releases are made by `.github/workflows/release.yml`; see
+[docs/releasing.md](docs/releasing.md).
+
 ## Trying it without a phone
 
 A debug build can replace GeoClue with a scripted position, so the GPS signal and sharing can be

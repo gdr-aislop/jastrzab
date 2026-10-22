@@ -1,0 +1,67 @@
+{
+    "app-id": "io.github.gdr_aislop.jastrzab",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "51",
+    "sdk": "org.gnome.Sdk",
+    "sdk-extensions": [
+        "org.freedesktop.Sdk.Extension.rust-stable"
+    ],
+    "command": "jastrzab",
+    "separate-locales": false,
+    "finish-args": [
+        "--share=network",
+        "--share=ipc",
+        "--socket=wayland",
+        "--socket=fallback-x11",
+        "--device=dri",
+        "--system-talk-name=org.freedesktop.GeoClue2",
+        "--system-talk-name=org.freedesktop.login1",
+        "--talk-name=org.freedesktop.secrets"
+    ],
+    "build-options": {
+        "append-path": "/usr/lib/sdk/rust-stable/bin"
+    },
+    "cleanup": [
+        "/include",
+        "/lib/pkgconfig",
+        "/share/gtk-doc",
+        "/share/man",
+        "*.la",
+        "*.a"
+    ],
+    "modules": [
+        {
+            "name": "jastrzab",
+            "buildsystem": "simple",
+            "build-commands": [
+                "cargo --offline build --release --locked -p jastrzab",
+                "install -Dm755 target/release/jastrzab /app/bin/jastrzab",
+                "install -Dm644 app/data/io.github.gdr_aislop.jastrzab.desktop /app/share/applications/io.github.gdr_aislop.jastrzab.desktop",
+                "install -Dm644 app/data/icons/hicolor/scalable/apps/io.github.gdr_aislop.jastrzab.svg /app/share/icons/hicolor/scalable/apps/io.github.gdr_aislop.jastrzab.svg",
+                "install -Dm644 app/data/icons/hicolor/symbolic/apps/io.github.gdr_aislop.jastrzab-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.gdr_aislop.jastrzab-symbolic.svg",
+                "install -Dm644 app/data/io.github.gdr_aislop.jastrzab.metainfo.xml /app/share/metainfo/io.github.gdr_aislop.jastrzab.metainfo.xml",
+                "install -Dm644 LICENSE /app/share/doc/jastrzab/LICENSE"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "..",
+                    "skip": [
+                        "target",
+                        "build",
+                        ".flatpak-builder"
+                    ]
+                },
+                "cargo-sources.json"
+            ],
+            "build-options": {
+                "env": {
+                    "CARGO_HOME": "/run/build/jastrzab/cargo",
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "safe.directory",
+                    "GIT_CONFIG_VALUE_0": "*"
+                }
+            }
+        }
+    ]
+}
