@@ -52,7 +52,7 @@ jobs:
         shell: bash
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Fails fast: a tag push with a Cargo.toml nobody bumped would otherwise ship a mislabelled
       # .deb. Skipped for workflow_dispatch dry runs.
@@ -145,7 +145,7 @@ jobs:
             glib-networking dconf-gsettings-backend gsettings-desktop-schemas \
             librsvg2-common librsvg2-bin adwaita-icon-theme
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Container jobs run as root over a workspace owned by the runner's host user, and that
       # mismatch isn't visible to actions/checkout's own safe.directory handling, only to a git
@@ -194,7 +194,7 @@ jobs:
     # Ubuntu userspace (systemd/dbus for the build sandbox), not a bare container image.
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The runtime follows the manifest: GNOME 51 is built on freedesktop-sdk 26.08, which is the
       # branch of the Rust extension that goes with it.
@@ -283,7 +283,7 @@ jobs:
     needs: build-flatpak
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # flatpak (for `flatpak build-update-repo`) as well as gpg: ubuntu-latest ships neither.
       - name: Install flatpak and GPG
