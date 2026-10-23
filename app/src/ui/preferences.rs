@@ -1,6 +1,10 @@
-//! Preferences. Changes apply immediately and there is no Save button: spin rows, combos and
-//! switches apply when changed; text entries apply on Return or their apply button, so a
-//! half-typed server address never reaches the network layer or the log scrubber.
+//! Preferences. Changes apply by themselves and there is no Save button: spin rows, combos and
+//! switches apply when changed; text entries apply when the user leaves them (Return, tapping
+//! another row) or closes the window, so a half-typed server address never reaches the network
+//! layer, the keyring or the log scrubber, and nothing is lost by closing without a tick.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use adw::prelude::*;
 use jastrzab_core::AppPaths;
@@ -11,49 +15,89 @@ use super::widgets::*;
 use crate::controller::Controller;
 use crate::platform::secrets::Kind;
 
+/// The text rows' pending edits, applied together when the window closes.
+type Commit = Rc<dyn Fn()>;
+
+#[derive(Clone, Default)]
+struct Pending(Rc<RefCell<Vec<Commit>>>);
+
+impl Pending {
+    fn flush(&self) {
+        for commit in self.0.borrow().iter() {
+            commit();
+        }
+    }
+}
+
+/// Applies `apply(text)` with the row's text once it has been edited, when the user presses Return
+/// or leaves the row, and (through `pending`) when the window closes. Returns the flag that says
+/// the row has unapplied edits: clear it after setting the text from the program.
+fn auto_apply(row: &impl IsA<adw::EntryRow>, pending: &Pending, apply: impl Fn(String) + 'static) -> Rc<Cell<bool>> {
+    let row = row.as_ref().clone();
+    let dirty = Rc::new(Cell::new(false));
+    let commit: Commit = {
+        let (row, dirty) = (row.clone(), dirty.clone());
+        Rc::new(move || {
+            if dirty.replace(false) {
+                apply(row.text().to_string());
+            }
+        })
+    };
+    {
+        let dirty = dirty.clone();
+        row.connect_changed(move |_| dirty.set(true));
+    }
+    {
+        let commit = commit.clone();
+        row.connect_entry_activated(move |_| commit());
+    }
+    let focus = gtk::EventControllerFocus::new();
+    {
+        let commit = commit.clone();
+        focus.connect_leave(move |_| commit());
+    }
+    row.add_controller(focus);
+    pending.0.borrow_mut().push(commit);
+    dirty
+}
+
 pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
     let settings = controller.settings();
     let window = adw::PreferencesWindow::builder().transient_for(parent).modal(true).default_width(360).default_height(648).build();
     let page = adw::PreferencesPage::new();
+    let pending = Pending::default();
 
     // --- Server ----------------------------------------------------------------------------
     let server = adw::PreferencesGroup::builder().title(tr("Server")).build();
-    let address =
-        adw::EntryRow::builder().title(tr("Server address")).input_purpose(gtk::InputPurpose::Url).text(&settings.server_url).show_apply_button(true).build();
+    let address = adw::EntryRow::builder().title(tr("Server address")).input_purpose(gtk::InputPurpose::Url).text(&settings.server_url).build();
     {
         let controller = controller.clone();
-        address.connect_apply(move |row| {
-            let text = row.text().trim().to_string();
-            controller.update_settings(|s| s.server_url = text);
-        });
+        auto_apply(&address, &pending, move |text| controller.update_settings(|s| s.server_url = text.trim().to_string()));
     }
     server.add(&address);
-    let username = adw::EntryRow::builder().title(tr("Username")).text(&settings.username).show_apply_button(true).build();
+    let username = adw::EntryRow::builder().title(tr("Username")).text(&settings.username).build();
     {
         let controller = controller.clone();
-        username.connect_apply(move |row| {
-            let text = row.text().trim().to_string();
-            controller.update_settings(|s| s.username = text);
-        });
+        auto_apply(&username, &pending, move |text| controller.update_settings(|s| s.username = text.trim().to_string()));
     }
     server.add(&username);
-    let password = adw::PasswordEntryRow::builder().title(tr("Password")).show_apply_button(true).build();
+    let password = adw::PasswordEntryRow::builder().title(tr("Password")).build();
+    let password_dirty = {
+        let controller = controller.clone();
+        auto_apply(&password, &pending, move |text| controller.store_secret(Kind::ServerPassword, text))
+    };
     controller.load_secret(Kind::ServerPassword, {
         let password = password.clone();
-        move |secret| password.set_text(&secret)
+        move |secret| {
+            password.set_text(&secret);
+            password_dirty.set(false); // what is shown came from the keyring: nothing to store back
+        }
     });
-    {
-        let controller = controller.clone();
-        password.connect_apply(move |row| controller.store_secret(Kind::ServerPassword, row.text().to_string()));
-    }
     server.add(&password);
-    let link = adw::EntryRow::builder().title(tr("Preferred link ID")).text(&settings.preferred_link_id).show_apply_button(true).build();
+    let link = adw::EntryRow::builder().title(tr("Preferred link ID")).text(&settings.preferred_link_id).build();
     {
         let controller = controller.clone();
-        link.connect_apply(move |row| {
-            let text = row.text().trim().to_string();
-            controller.update_settings(|s| s.preferred_link_id = text);
-        });
+        auto_apply(&link, &pending, move |text| controller.update_settings(|s| s.preferred_link_id = text.trim().to_string()));
     }
     server.add(&link);
     page.add(&server);
@@ -104,15 +148,18 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
             controller.update_settings(|s| s.e2e_enabled = on);
         });
     }
-    let enc_password = adw::PasswordEntryRow::builder().title(tr("Encryption password")).show_apply_button(true).build();
+    let enc_password = adw::PasswordEntryRow::builder().title(tr("Encryption password")).build();
+    let enc_password_dirty = {
+        let controller = controller.clone();
+        auto_apply(&enc_password, &pending, move |text| controller.store_secret(Kind::EncryptionPassword, text))
+    };
     controller.load_secret(Kind::EncryptionPassword, {
         let enc_password = enc_password.clone();
-        move |secret| enc_password.set_text(&secret)
+        move |secret| {
+            enc_password.set_text(&secret);
+            enc_password_dirty.set(false);
+        }
     });
-    {
-        let controller = controller.clone();
-        enc_password.connect_apply(move |row| controller.store_secret(Kind::EncryptionPassword, row.text().to_string()));
-    }
     encryption.add_row(&enc_password);
     privacy.add(&encryption);
     page.add(&privacy);
@@ -129,7 +176,7 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
             ProxyKind::Socks => 3,
         })
         .build();
-    let proxy_host = adw::EntryRow::builder().title(tr("Proxy host")).text(&settings.proxy_host).show_apply_button(true).build();
+    let proxy_host = adw::EntryRow::builder().title(tr("Proxy host")).text(&settings.proxy_host).build();
     let (proxy_port_row, proxy_port) = spin_row(&tr("Proxy port"), "", 1.0, 65535.0, f64::from(settings.proxy_port));
     let proxy_rows_sensitive = {
         let (host, port) = (proxy_host.clone(), proxy_port_row.clone());
@@ -155,10 +202,7 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
     }
     {
         let controller = controller.clone();
-        proxy_host.connect_apply(move |row| {
-            let text = row.text().trim().to_string();
-            controller.update_settings(|s| s.proxy_host = text);
-        });
+        auto_apply(&proxy_host, &pending, move |text| controller.update_settings(|s| s.proxy_host = text.trim().to_string()));
     }
     {
         let controller = controller.clone();
@@ -252,6 +296,10 @@ pub fn show(parent: &adw::ApplicationWindow, controller: &Controller) {
     page.add(&diagnostics);
 
     window.add(&page);
+    window.connect_close_request(move |_| {
+        pending.flush();
+        glib::Propagation::Proceed
+    });
     let window_clone = window.clone();
     glib::idle_add_local_once(move || window_clone.present());
 }

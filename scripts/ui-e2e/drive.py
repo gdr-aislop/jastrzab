@@ -279,7 +279,27 @@ def prefs():
         except Exception:
             pass
     check(not unnamed, f"every control in Preferences has a name {unnamed}")
+
+    # Text rows have no apply button: what is typed is kept when the window is closed.
+    def type_into(name, text):
+        row = next(iter(find_all("text", name)), None)
+        if row is None:
+            return False
+        return Atspi.EditableText.set_text_contents(row, text)
+
+    check(type_into("Username", "tester"), "the Username row can be edited")
+    check(type_into("Server address", "http://example.invalid:9/"), "so can the Server address row")
+    time.sleep(0.5)
+    close = [n for n in find_all("push button") if (n.get_name() or "") in ("Close", "Close window")]
+    names = sorted({n.get_name() for n in find_all("push button") if n.get_name()})
+    check(bool(close), f"the Preferences window has a close button {names}")
+    if close:
+        Atspi.Action.do_action(close[-1], 0)
+    wait_for(lambda: not find_all("label", "Server"), 10, "Preferences to close")
     end_app(proc)
+    saved = open(f"{HOME}/.config/{APP_ID}/settings.toml").read()
+    check('username = "tester"' in saved, "the username was saved without any apply button")
+    check('server_url = "http://example.invalid:9/"' in saved, "and so was the server address")
 
 
 def frame_size():
