@@ -25,6 +25,9 @@ run "hostile server, 320x640"         narrow          worstcase EXPECT_SIZE=320x
 run "hostile server, text at 1.5x"    phone           worstcase EXPECT_SIZE=360x720 "PHOC_KEYFILE_EXTRA=
 [org/gnome/desktop/interface]
 text-scaling-factor=1.5"
+run "unknown icon theme"    phone           icons "PHOC_KEYFILE_EXTRA=
+[org/gnome/desktop/interface]
+icon-theme='nonexistent'"
 run "network gone and back"  phone           network
 run "real GeoClue"          phone           geoclue WITH_GEOCLUE=1
 echo

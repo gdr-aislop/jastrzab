@@ -475,6 +475,19 @@ def network():
     end_app(proc)
 
 
+def icons():
+    """The host's icon theme does not exist (as in a Flatpak whose host uses a theme the runtime
+    lacks): the theme has none of the app's own icons, and the bundled ones fill in."""
+    proc = start_app()
+    shot("e2e-icons-unknown-theme")
+    end_app(proc)
+    log = log_text()
+    line = next((l for l in log.splitlines() if "icon theme" in l), "")
+    check("theme=nonexistent" in line, f"the run used an unknown icon theme: {line[-120:]!r}")
+    check("missing_from_theme=[]" not in line, "the theme lacks some of the app's icons (the test is meaningful)")
+    check("icons missing even with the bundled ones" not in log, "the bundled icons cover them all")
+
+
 def geoclue():
     """The real GeoClue 2.7.0 (WITH_GEOCLUE=1): the static source at 52.52, 13.405."""
     proc = start_app(fake=None)
@@ -609,7 +622,7 @@ def group():
     end_app(proc)
 
 
-SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "network": network, "logging": logging, "crash": crash, "resume": resume}
+SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "icons": icons, "network": network, "logging": logging, "crash": crash, "resume": resume}
 
 if __name__ == "__main__":
     name = sys.argv[1] if len(sys.argv) > 1 else "solo"

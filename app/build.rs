@@ -1,8 +1,12 @@
-//! Embeds the git commit in the version line (`jastrzab --version`, and the first line of every
-//! log), so a pasted log snippet says which build it came from. `JASTRZAB_GIT_HASH` in the
-//! environment wins (a sandboxed build, such as the Flatpak's, may have no usable git).
+//! Compiles the bundled icons into a GResource, and embeds the git commit in the version line
+//! (`jastrzab --version`, and the first line of every log), so a pasted log snippet says which
+//! build it came from. `JASTRZAB_GIT_HASH` in the environment wins (a sandboxed build, such as the
+//! Flatpak's, may have no usable git).
 
 fn main() {
+    // The icons the UI names, compiled into the binary (data/ui-icons/README.md says why).
+    glib_build_tools::compile_resources(&["data/ui-icons"], "data/jastrzab.gresource.xml", "jastrzab.gresource");
+
     let hash = std::env::var("JASTRZAB_GIT_HASH")
         .ok()
         .filter(|s| !s.trim().is_empty())
