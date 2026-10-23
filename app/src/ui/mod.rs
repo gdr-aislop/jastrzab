@@ -3,6 +3,7 @@
 
 pub mod dialogs;
 pub mod group;
+pub mod icons;
 pub mod links;
 pub mod main_window;
 pub mod preferences;

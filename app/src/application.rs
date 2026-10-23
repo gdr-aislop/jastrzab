@@ -17,6 +17,7 @@ pub fn build_application(paths: AppPaths) -> adw::Application {
         move |app| {
             crate::i18n::init();
             load_css();
+            crate::ui::icons::register();
             let settings = load_settings(&paths);
             if let Err(err) = paths.ensure_dirs() {
                 tracing::warn!(%err, "couldn't create the settings and state folders");

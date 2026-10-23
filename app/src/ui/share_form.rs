@@ -1,4 +1,5 @@
-//! The "New Share" form: how long, and whether alone or in a group.
+//! The "New Share" form: how long (a number and a unit on one row, like Hauk's), and whether alone
+//! or in a group.
 
 use adw::prelude::*;
 use jastrzab_core::i18n::tr;
@@ -9,10 +10,20 @@ use super::dialogs;
 use super::widgets::*;
 use crate::controller::FormValues;
 
+/// Four digits are enough for any duration the server accepts (31 days is 44 640 minutes, but
+/// nobody types that: hours and days exist).
+const MAX_DIGITS: usize = 4;
+
+/// The number typed in the duration row; nothing usable counts as 0, which the engine rejects
+/// with its *Invalid Duration* message.
+fn parse_duration(text: &str) -> u32 {
+    text.trim().parse().unwrap_or(0)
+}
+
 pub struct ShareForm {
     group: adw::PreferencesGroup,
-    duration: gtk::SpinButton,
-    unit: adw::ComboRow,
+    duration: adw::EntryRow,
+    unit: gtk::DropDown,
     mode: adw::ComboRow,
     adopt_row: adw::ActionRow,
     adopt: gtk::Switch,
@@ -24,15 +35,23 @@ impl ShareForm {
     pub fn new(settings: &Settings, parent: &adw::ApplicationWindow) -> Self {
         let group = adw::PreferencesGroup::builder().title(tr("New Share")).build();
 
-        let (duration_row, duration) = spin_row(&tr("Duration"), "", 1.0, 9999.0, f64::from(settings.duration));
-        group.add(&duration_row);
-
-        let unit = adw::ComboRow::builder()
-            .title(tr("Unit"))
-            .model(&gtk::StringList::new(&[&tr("Minutes"), &tr("Hours"), &tr("Days")]))
-            .selected(DurationUnit::ALL.iter().position(|u| *u == settings.unit).unwrap_or(0) as u32)
-            .build();
-        group.add(&unit);
+        // An entry row with the unit as its suffix rather than a spin button beside a dropdown:
+        // the number takes whatever width is left, so the row fits a 320 px screen at large text.
+        let duration = adw::EntryRow::builder().title(tr("Duration")).input_purpose(gtk::InputPurpose::Digits).text(settings.duration.to_string()).build();
+        duration.connect_changed(|row| {
+            let text = row.text();
+            let digits: String = text.chars().filter(char::is_ascii_digit).take(MAX_DIGITS).collect();
+            if digits != text {
+                row.set_text(&digits);
+                row.set_position(-1);
+            }
+        });
+        let unit = gtk::DropDown::from_strings(&[&tr("Minutes"), &tr("Hours"), &tr("Days")]);
+        unit.set_selected(DurationUnit::ALL.iter().position(|u| *u == settings.unit).unwrap_or(0) as u32);
+        unit.set_valign(gtk::Align::Center);
+        set_accessible_label(&unit, &tr("Unit"));
+        duration.add_suffix(&unit);
+        group.add(&duration);
 
         let mode =
             adw::ComboRow::builder().title(tr("Sharing mode")).model(&gtk::StringList::new(&[&tr("Just Me"), &tr("Create Group"), &tr("Join Group")])).build();
@@ -88,7 +107,7 @@ impl ShareForm {
 
     pub fn values(&self) -> FormValues {
         FormValues {
-            duration: self.duration.value_as_int().max(1) as u32,
+            duration: parse_duration(&self.duration.text()),
             unit: DurationUnit::ALL.get(self.unit.selected() as usize).copied().unwrap_or_default(),
             mode: Mode::ALL.get(self.mode.selected() as usize).copied().unwrap_or_default(),
             nickname: self.nickname.text().to_string(),
@@ -99,5 +118,24 @@ impl ShareForm {
 
     pub fn render(&self, view: &View) {
         set_sensitive(&self.group, view.form_sensitive);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_duration;
+
+    #[test]
+    fn the_typed_number_is_used() {
+        assert_eq!(parse_duration("30"), 30);
+        assert_eq!(parse_duration(" 7 "), 7);
+        assert_eq!(parse_duration("9999"), 9999);
+    }
+
+    #[test]
+    fn nothing_usable_is_zero_so_the_engine_asks_for_a_duration() {
+        for text in ["", "  ", "abc", "-5", "1.5", "99999999999999999999"] {
+            assert_eq!(parse_duration(text), 0, "{text:?}");
+        }
     }
 }

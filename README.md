@@ -197,3 +197,5 @@ and a headless Phoc harness that runs the real app on PureOS Crimson's libraries
 
 GPL-3.0-or-later (see [LICENSE](LICENSE)). The wire protocol and the idea come from Hauk by Marius
 Lindvall (Apache-2.0), credited in the About window.
+The UI's symbolic icons in `app/data/ui-icons` are from the Adwaita icon theme (LGPL-3.0-or-later
+or CC-BY-SA-3.0); see the README there.

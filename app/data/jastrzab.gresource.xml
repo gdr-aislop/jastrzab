@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Symbolic icons the UI names, shipped with the app so they show up whatever icon theme the
+     system (or a Flatpak sandbox) has; see app/data/ui-icons/README.md. Laid out like hicolor. -->
+<gresources>
+  <gresource prefix="/io/github/gdr_aislop/jastrzab/icons">
+    <file>scalable/actions/document-edit-symbolic.svg</file>
+    <file>scalable/actions/edit-copy-symbolic.svg</file>
+    <file>scalable/actions/find-location-symbolic.svg</file>
+    <file>scalable/actions/go-next-symbolic.svg</file>
+    <file>scalable/actions/help-about-symbolic.svg</file>
+    <file>scalable/actions/list-add-symbolic.svg</file>
+    <file>scalable/actions/open-menu-symbolic.svg</file>
+    <file>scalable/actions/process-stop-symbolic.svg</file>
+    <file>scalable/actions/window-close-symbolic.svg</file>
+    <file>scalable/status/location-services-active-symbolic.svg</file>
+    <file>scalable/status/location-services-disabled-symbolic.svg</file>
+    <file>scalable/status/network-offline-symbolic.svg</file>
+    <file>scalable/status/network-transmit-receive-symbolic.svg</file>
+  </gresource>
+</gresources>

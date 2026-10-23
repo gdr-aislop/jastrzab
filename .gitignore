@@ -3,3 +3,4 @@ __pycache__/
 /build
 /.flatpak-builder
 /flatpak/cargo-sources.json
+/dump.rdb

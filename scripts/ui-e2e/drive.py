@@ -475,6 +475,43 @@ def network():
     end_app(proc)
 
 
+def duration():
+    """The duration is one row: a number and a unit dropdown. Last time's values are shown, the
+    values typed are what a share is started with (and saved for next time)."""
+    proc = start_app(extra_settings='duration = 5\nunit = "hours"\n')
+    entries = find_all("text", "Duration")
+    typed = ""
+    if entries:
+        typed = Atspi.Text.get_text(entries[0], 0, Atspi.Text.get_character_count(entries[0]))
+    check(typed == "5", f"the row shows the last duration: {typed!r}")
+    check(any(n.get_name() == "Unit" for n in find_all("combo box")), "the unit dropdown is in the same group, named Unit")
+    check(has_label("Hours"), "and shows the last unit")
+    check(not any(n.get_name() == "Unit" for n in find_all("label")), "there is no separate Unit row")
+    shot("e2e-duration")
+    click("push button", "Start Sharing")
+    wait_for(lambda: has_label("Sharing location"), 20, "Sharing location")
+    check(has_label("Sharing location"), "a share starts from the row's values")
+    click("push button", "Stop Sharing")
+    click_in_dialog("Stop Sharing")
+    wait_for(lambda: has_label("Not sharing"), 15, "Not sharing")
+    end_app(proc)
+    saved = open(f"{HOME}/.config/{APP_ID}/settings.toml").read()
+    check("duration = 5" in saved and 'unit = "hours"' in saved, "the values are saved for next time")
+
+
+def icons():
+    """The host's icon theme does not exist (as in a Flatpak whose host uses a theme the runtime
+    lacks): the theme has none of the app's own icons, and the bundled ones fill in."""
+    proc = start_app()
+    shot("e2e-icons-unknown-theme")
+    end_app(proc)
+    log = log_text()
+    line = next((l for l in log.splitlines() if "icon theme" in l), "")
+    check("theme=nonexistent" in line, f"the run used an unknown icon theme: {line[-120:]!r}")
+    check("missing_from_theme=[]" not in line, "the theme lacks some of the app's icons (the test is meaningful)")
+    check("icons missing even with the bundled ones" not in log, "the bundled icons cover them all")
+
+
 def geoclue():
     """The real GeoClue 2.7.0 (WITH_GEOCLUE=1): the static source at 52.52, 13.405."""
     proc = start_app(fake=None)
@@ -609,7 +646,7 @@ def group():
     end_app(proc)
 
 
-SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "network": network, "logging": logging, "crash": crash, "resume": resume}
+SCENARIOS = {"solo": solo, "prefs": prefs, "group": group, "worstcase": worstcase, "services": services, "geoclue": geoclue, "icons": icons, "duration": duration, "network": network, "logging": logging, "crash": crash, "resume": resume}
 
 if __name__ == "__main__":
     name = sys.argv[1] if len(sys.argv) > 1 else "solo"
