@@ -42,7 +42,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 crash-handler = "0.8"
 minidumper = "0.11"
-gettext-rs = { package = "gettext-rs", version = "0.7", features = ["gettext-system"] }
+gettext-rs = { package = "gettext-rs", version = "0.8", features = ["gettext-system"] }
 
 hauk = { path = "crates/hauk" }
 jastrzab-core = { path = "crates/jastrzab-core" }
