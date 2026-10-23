@@ -76,7 +76,7 @@ jobs:
       - name: Start a Hauk backend
         run: |
           set -eux
-          git clone --depth 1 --branch 1.6.3 https://github.com/bilde2910/Hauk /tmp/hauk
+          git clone --depth 1 --branch v1.6.3 https://github.com/bilde2910/Hauk /tmp/hauk
           cd /tmp/hauk/backend-php
           hash="$(php -r 'echo password_hash("testpw", PASSWORD_BCRYPT);')"
           sed -e 's/"storage_backend"       => MEMCACHED/"storage_backend"       => REDIS/' \
