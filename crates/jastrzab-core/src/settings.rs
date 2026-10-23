@@ -129,8 +129,8 @@ impl Default for Settings {
             confirm_stop: true,
             pause_when_offline: true,
             anonymize_logs: true,
-            duration: 30,
-            unit: DurationUnit::Minutes,
+            duration: 2,
+            unit: DurationUnit::Hours,
             nickname: String::new(),
             adoptable: true,
         }
@@ -203,6 +203,14 @@ mod tests {
     fn defaults_round_trip_through_toml() {
         let settings = Settings::default();
         assert_eq!(Settings::from_toml(&settings.to_toml()), settings);
+    }
+
+    #[test]
+    fn a_new_share_defaults_to_two_hours_and_a_saved_choice_is_kept() {
+        let fresh = Settings::from_toml("");
+        assert_eq!((fresh.duration, fresh.unit), (2, DurationUnit::Hours));
+        let saved = Settings::from_toml("duration = 30\nunit = \"minutes\"\n");
+        assert_eq!((saved.duration, saved.unit), (30, DurationUnit::Minutes));
     }
 
     #[test]

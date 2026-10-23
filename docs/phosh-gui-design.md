@@ -144,7 +144,7 @@ A single page replaces the Android layout's logo, tagline and repository link. T
 - Status row: icon, **Not sharing**, subtitle "Choose how long to share, then start".
 - **GPS signal** row: "Not checking" with a **Check** button (§4.4).
 - **New Share** group:
-  - *Duration*: one entry row, as in Hauk: a number (digits only, default 30) with a unit dropdown (Minutes, Hours, Days) as its suffix. An entry row rather than a spin button beside a dropdown, so the number takes the width that is left and the row fits 320 px at large text;
+  - *Duration*: one entry row, as in Hauk: a number (digits only, default 2) with the unit dropdown (Minutes, Hours, Days; default Hours) as its suffix. An entry row rather than a spin button beside a dropdown, so the number takes the width that is left and the row fits 320 px at large text;
   - *Sharing mode*: a combo (Just Me, Create Group, Join Group);
   - *Allow Adoption*: a switch with a help button, shown only for Just Me.
 - **Start Sharing**: a `.pill` `.suggested-action` button, the only suggested-style button on the view.

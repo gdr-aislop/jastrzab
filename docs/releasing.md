@@ -82,6 +82,10 @@ Do this before the first tag. The workflow cannot do any of it for itself.
 
    * `https://gdr-aislop.github.io/jastrzab/apt/dists/stable/InRelease`
    * `https://gdr-aislop.github.io/jastrzab/apt/jastrzab.asc`
+
+   The README's APT instructions pin the repository to the single package `jastrzab` with
+   `Pin: release o=jastrzab`: that matches the `Origin: jastrzab` line `build-apt-repo` writes into
+   the `Release` file, so changing one means changing the other.
    * `https://gdr-aislop.github.io/jastrzab/io.github.gdr_aislop.jastrzab.flatpakrepo`
 
 ## The signing key

@@ -54,11 +54,25 @@ password.
 sudo curl -fsSLo /usr/share/keyrings/jastrzab.asc https://gdr-aislop.github.io/jastrzab/apt/jastrzab.asc
 echo "deb [signed-by=/usr/share/keyrings/jastrzab.asc] https://gdr-aislop.github.io/jastrzab/apt stable main" \
     | sudo tee /etc/apt/sources.list.d/jastrzab.list
+sudo tee /etc/apt/preferences.d/jastrzab.pref <<'EOF'
+Package: jastrzab
+Pin: release o=jastrzab
+Pin-Priority: 500
+
+Package: *
+Pin: release o=jastrzab
+Pin-Priority: -1
+EOF
 sudo apt update
 sudo apt install jastrzab
 ```
 
-`sudo apt upgrade` then keeps it current. Without the repository, install the downloaded file
+The `preferences.d` file limits this repository to the one package: APT trusts the signing key for
+every package name the repository lists, so without the pin a repository that ever carried, say, a
+different `libc6` could replace the system's. With it, anything but `jastrzab` from this source has
+no installation candidate. (Check with `apt-cache policy <package>`.)
+
+`sudo apt upgrade` then keeps Jastrzab current. Without the repository, install the downloaded file
 instead: `sudo apt install ./jastrzab_*_arm64.deb` (or `_amd64.deb`).
 
 ### Flatpak
