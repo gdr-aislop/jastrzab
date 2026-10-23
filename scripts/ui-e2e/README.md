@@ -15,6 +15,7 @@ What they check, against a **real Hauk backend**, the **real GeoClue 2.7.0**, a 
 | `prefs` | Open Main Menu and Preferences; every control has an accessible name; the keyring password round-trips |
 | `worstcase` | A hostile server (25 links with 80-character IDs, a 1000-character message): the window never changes size. Run with `EXPECT_SIZE` on the `phone`, `landscape`, `landscape-short` (720×288) and `narrow` (320×640) profiles to show the minimum size fits |
 | `services` | The notification is resident, has the Copy and Stop actions, is replaced (not re-sent) as the signal changes, its Stop action ends the share and withdraws it; a logind sleep inhibitor is held while sharing and released after |
+| `network` | (a fake NetworkManager) the app listens to GLib's NetworkManager backend; the network going away shows at once and pauses posting; after a 20 s grace period the GPS goes off and the signal row says *Paused*, while the phone is still kept awake; a blip shorter than that leaves the GPS alone; when the network returns location restarts and posting resumes |
 | `geoclue` | (`WITH_GEOCLUE=1`) the app gets a fix from the real GeoClue and the position reaches the server |
 | `logging` | One dated file, nothing on disk for the first minute, flushed by the 60 s timer and on exit, the line format |
 | `crash` | `kill -SEGV`: a minidump is written, the crash server logs it into the same file, the lines before it are flushed |

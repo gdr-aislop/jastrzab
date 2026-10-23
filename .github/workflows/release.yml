@@ -46,6 +46,10 @@ jobs:
             runner: ubuntu-latest
     container:
       image: debian:bookworm
+    # A container job's steps run under plain `sh` (dash) unless told otherwise.
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -121,6 +125,9 @@ jobs:
             runner: ubuntu-latest
     container:
       image: debian:bookworm
+    defaults:
+      run:
+        shell: bash
 
     steps:
       # Same compiler/toolchain set as the deb job, plus the runtime pieces (gio modules, pixbuf

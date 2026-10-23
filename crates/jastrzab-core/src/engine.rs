@@ -26,6 +26,9 @@ use crate::view::*;
 pub const CHECK_LIMIT_SECS: u32 = 300;
 /// While only checking the signal, ask for a fix every second so the display feels live.
 const CHECK_INTERVAL_SECS: u32 = 1;
+/// How long the network must stay gone before location is switched off. A Wi-Fi hand-over or a
+/// tunnel of a few seconds is not worth stopping and restarting the GPS for.
+const OFFLINE_PAUSE_SECS: u32 = 20;
 
 /// The current time: a monotonic reading for scheduling and the wall clock for expiry and
 /// timestamps.
@@ -45,6 +48,8 @@ pub enum TimerKind {
     SignalLost,
     /// The pre-share signal check has run long enough.
     CheckLimit,
+    /// The network has been gone long enough that location is switched off until it returns.
+    OfflinePause,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,6 +232,10 @@ pub struct Engine {
     signal: SignalMonitor,
     checking: bool,
     window_visible: bool,
+    /// What the system says about the network.
+    net_up: bool,
+    /// Whether the app acts as if there is a network: `net_up`, or always when the user turned
+    /// `pause_when_offline` off.
     online: bool,
     conn: Conn,
     next_id: HttpId,
@@ -238,6 +247,8 @@ pub struct Engine {
     lost_toast_shown: bool,
     /// Whether location updates have been requested (and not yet stopped).
     location_on: bool,
+    /// Location was switched off by [`TimerKind::OfflinePause`] and comes back with the network.
+    paused: bool,
     /// The latest fix while a check or a connecting share is running, so a share started after
     /// a check posts its first point at once.
     latest_fix: Option<Fix>,
@@ -262,6 +273,7 @@ impl Engine {
             signal: SignalMonitor::new(),
             checking: false,
             window_visible: true,
+            net_up: true,
             online: true,
             conn: Conn::Ok,
             next_id: 1,
@@ -272,6 +284,7 @@ impl Engine {
             send_due_ms: None,
             lost_toast_shown: false,
             location_on: false,
+            paused: false,
             latest_fix: None,
             resume_offer: None,
             hold: false,
@@ -330,9 +343,15 @@ impl Engine {
             Event::LocationFailed(failure) => self.location_failed(failure),
             Event::Fix(fix) => self.fix(fix, now),
             Event::HttpDone { id, result } => self.http_done(id, result, now),
-            Event::Network(up) => self.network(up, now),
+            Event::Network(up) => {
+                self.net_up = up;
+                self.sync_online(now);
+            }
             Event::Timer { kind, generation } => self.timer(kind, generation, now),
-            Event::SettingsChanged(settings) => self.settings = settings.sanitized(),
+            Event::SettingsChanged(settings) => {
+                self.settings = settings.sanitized();
+                self.sync_online(now);
+            }
         }
         self.sync_notification();
         std::mem::take(&mut self.out)
@@ -561,6 +580,9 @@ impl Engine {
         if announce {
             self.out.push(Effect::Toast(Toast { title: tr("Sharing started"), copy_link: true }));
         }
+        if !self.online {
+            self.arm(TimerKind::OfflinePause, OFFLINE_PAUSE_SECS); // resumed with no network
+        }
         self.pump(now);
     }
 
@@ -598,9 +620,10 @@ impl Engine {
         self.uplink.clear();
         self.controls.clear();
         self.session = None;
-        for kind in [TimerKind::Expiry, TimerKind::Send, TimerKind::SignalLost] {
+        for kind in [TimerKind::Expiry, TimerKind::Send, TimerKind::SignalLost, TimerKind::OfflinePause] {
             self.disarm(kind);
         }
+        self.paused = false;
         self.send_due_ms = None;
         self.set_inhibit(false);
         self.out.push(Effect::PersistSession(None));
@@ -718,7 +741,7 @@ impl Engine {
     }
 
     fn fix(&mut self, fix: Fix, now: Now) {
-        if !self.signal.is_active() {
+        if !self.signal.is_active() || self.paused {
             return;
         }
         self.signal.on_fix(&fix, now.mono_ms);
@@ -889,23 +912,54 @@ impl Engine {
         self.pump(now);
     }
 
+    fn sync_online(&mut self, now: Now) {
+        self.network(self.net_up || !self.settings.pause_when_offline, now);
+    }
+
     fn network(&mut self, up: bool, now: Now) {
         let changed = self.online != up;
         self.online = up;
         if !changed {
             return;
         }
-        if self.phase == Phase::Active {
-            if up {
-                self.uplink.network_restored();
-                if self.conn == Conn::Offline {
-                    self.conn = Conn::Unreachable; // until a post gets through
-                }
-            } else {
-                self.conn = Conn::Offline;
-            }
-            self.pump(now);
+        if self.phase != Phase::Active {
+            return;
         }
+        if up {
+            // A phone that slept through the outage fires its timers late.
+            if self.session.as_ref().is_some_and(|s| s.expires_at_unix <= now.unix) {
+                self.expired();
+                return;
+            }
+            self.uplink.network_restored();
+            if self.conn == Conn::Offline {
+                self.conn = Conn::Unreachable; // until a post gets through
+            }
+            self.disarm(TimerKind::OfflinePause);
+            if self.paused {
+                tracing::info!("network back: location on again");
+                self.paused = false;
+                self.signal.resume();
+                self.location_start((self.interval_ms() / 1000) as u32);
+            }
+        } else {
+            self.conn = Conn::Offline;
+            self.arm(TimerKind::OfflinePause, OFFLINE_PAUSE_SECS);
+        }
+        self.pump(now);
+    }
+
+    /// The network has stayed gone: nothing can be sent, so the GPS (the biggest drain) and the
+    /// signal watch go off until it returns. The share, its timer and the wake lock stay.
+    fn pause_for_offline(&mut self) {
+        if self.phase != Phase::Active || self.online || self.paused {
+            return;
+        }
+        tracing::info!("no network for a while: location off until it returns");
+        self.paused = true;
+        self.disarm(TimerKind::SignalLost);
+        self.signal.pause();
+        self.location_stop();
     }
 
     fn timer(&mut self, kind: TimerKind, generation: u64, now: Now) {
@@ -914,6 +968,7 @@ impl Engine {
         }
         match kind {
             TimerKind::Expiry => self.expired(),
+            TimerKind::OfflinePause => self.pause_for_offline(),
             TimerKind::Send => {
                 self.send_due_ms = None;
                 self.pump(now);
