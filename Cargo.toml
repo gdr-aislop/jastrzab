@@ -34,7 +34,7 @@ async-channel = "2"
 signal-hook = "0.3"
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
-directories = "5"
+directories = "6"
 tempfile = "3"
 # Logging and crash reporting: the same set audiobooklet uses.
 tracing = "0.1"
