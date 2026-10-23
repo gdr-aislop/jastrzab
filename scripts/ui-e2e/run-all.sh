@@ -25,6 +25,7 @@ run "hostile server, 320x640"         narrow          worstcase EXPECT_SIZE=320x
 run "hostile server, text at 1.5x"    phone           worstcase EXPECT_SIZE=360x720 "PHOC_KEYFILE_EXTRA=
 [org/gnome/desktop/interface]
 text-scaling-factor=1.5"
+run "duration row"            phone           duration
 run "unknown icon theme"    phone           icons "PHOC_KEYFILE_EXTRA=
 [org/gnome/desktop/interface]
 icon-theme='nonexistent'"

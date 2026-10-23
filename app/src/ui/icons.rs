@@ -7,8 +7,10 @@
 
 const RESOURCE_PATH: &str = "/io/github/gdr_aislop/jastrzab/icons";
 
-/// Every icon the code names. `tests` keeps this, the SVGs and the sources in step.
-const NAMES: [&str; 12] = [
+/// Every icon the code names, and the ones libadwaita's own widgets ask the theme for. `tests` keeps this, the SVGs and the sources in step.
+const NAMES: [&str; 13] = [
+    // Not named in our code: the edit indicator of every `AdwEntryRow`.
+    "document-edit-symbolic",
     "edit-copy-symbolic",
     "find-location-symbolic",
     "go-next-symbolic",

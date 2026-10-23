@@ -3,6 +3,7 @@
      system (or a Flatpak sandbox) has; see app/data/ui-icons/README.md. Laid out like hicolor. -->
 <gresources>
   <gresource prefix="/io/github/gdr_aislop/jastrzab/icons">
+    <file>scalable/actions/document-edit-symbolic.svg</file>
     <file>scalable/actions/edit-copy-symbolic.svg</file>
     <file>scalable/actions/find-location-symbolic.svg</file>
     <file>scalable/actions/go-next-symbolic.svg</file>

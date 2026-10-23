@@ -1,7 +1,7 @@
 # Bundled UI icons
 
 The symbolic icons the app names (`location-services-*`, `find-location`, `network-*`, `go-next`,
-`edit-copy`, `process-stop`, `open-menu`, `list-add`, `help-about`, `window-close`), compiled into the
+`edit-copy`, `document-edit` (the pencil of every entry row, named by libadwaita), `process-stop`, `open-menu`, `list-add`, `help-about`, `window-close`), compiled into the
 binary (`../jastrzab.gresource.xml`) and added to the icon search path at start-up. Without them
 the app shows "missing image" icons wherever the system's icon theme lacks them, which is what
 happens in a Flatpak whose host uses a theme the sandbox does not have.

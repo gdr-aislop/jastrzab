@@ -144,8 +144,7 @@ A single page replaces the Android layout's logo, tagline and repository link. T
 - Status row: icon, **Not sharing**, subtitle "Choose how long to share, then start".
 - **GPS signal** row: "Not checking" with a **Check** button (§4.4).
 - **New Share** group:
-  - *Duration*: a spin button, default 30;
-  - *Unit*: a combo (Minutes, Hours, Days);
+  - *Duration*: one entry row, as in Hauk: a number (digits only, default 30) with a unit dropdown (Minutes, Hours, Days) as its suffix. An entry row rather than a spin button beside a dropdown, so the number takes the width that is left and the row fits 320 px at large text;
   - *Sharing mode*: a combo (Just Me, Create Group, Join Group);
   - *Allow Adoption*: a switch with a help button, shown only for Just Me.
 - **Start Sharing**: a `.pill` `.suggested-action` button, the only suggested-style button on the view.
@@ -312,7 +311,7 @@ The Android app shows an ongoing notification whose title mirrors the status and
 |---|---|
 | Toolbar with gear | Header bar with Main Menu |
 | Logo, tagline, repo link | Removed from the page; About window |
-| Duration field + unit spinner | Duration spin row + Unit combo row |
+| Duration field + unit spinner | One Duration entry row with the unit dropdown as its suffix |
 | Mode spinner | Sharing mode combo row |
 | "Allow adoption" checkbox + "(What's this?)" link | Switch row + help button |
 | Status label (6 colours) | Status row for the session (§4.3) and a separate GPS signal row for position quality (§4.4) |
