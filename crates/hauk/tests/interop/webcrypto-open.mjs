@@ -1,9 +1,11 @@
 // Reads the JSON printed by `cargo run -p hauk --example seal_post` on stdin and decrypts every
 // field the way Hauk's web viewer does. Exits non-zero unless the plaintext is what was sealed.
+import { webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 const post = JSON.parse(readFileSync(0, "utf8"));
 const byteArray = (b64) => Uint8Array.from(Buffer.from(b64, "base64"));
-const subtle = globalThis.crypto.subtle;
+// Not globalThis.crypto: Node 18 (Debian bookworm's) has no global WebCrypto without a flag.
+const subtle = webcrypto.subtle;
 const base = await subtle.importKey("raw", new TextEncoder("utf-8").encode(post.password), "PBKDF2", false, ["deriveKey"]);
 const key = await subtle.deriveKey(
   { name: "PBKDF2", salt: byteArray(post.salt), iterations: 65536, hash: "SHA-1" },
