@@ -19,6 +19,8 @@ fn main() -> glib::ExitCode {
         crash_reporting::run_crash_server(&socket_name, paths.logs_dir(), paths.crash_dumps_dir());
     }
 
+    i18n::set_locale();
+
     // `--version` / `-v`: print and exit before any side effect, notably before the state
     // directories are created. Parsed by hand because GApplication's option handling only runs
     // inside `app.run()`.
